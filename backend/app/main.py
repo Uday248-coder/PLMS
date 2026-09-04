@@ -1,13 +1,18 @@
 """App factory: wiring only. Routes live in app/routes/, auth in deps.py, seed in seed.py."""
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
 from .background import sweep_once
 from .database import Base, engine, SessionLocal
 from .routes import admin, driver, guard, lots, sessions, views, ws
 from .seed import ensure_demo_lots, ensure_seed_users
+
+_FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+_DIST_DIR = _FRONTEND_DIR / "dist"
 
 
 @asynccontextmanager
@@ -58,3 +63,7 @@ async def value_error_handler(request, exc):
 for _router in (views.router, lots.router, sessions.router, driver.router,
                 guard.router, admin.router, ws.router):
     app.include_router(_router)
+
+# Serve React build assets (JS, CSS, images) at /assets/
+if (_DIST_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=str(_DIST_DIR / "assets")), name="static-assets")

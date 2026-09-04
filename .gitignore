@@ -1,6 +1,11 @@
-# Backend-only repo for now (frontend joins later).
-/frontend/
+# Build artifacts
+/frontend/dist/
+/frontend/node_modules/
+
+# Graphify (local only)
 graphify-out/
+
+# Docs (local only)
 docs/
 parking-slot-management-build-plan.md
 parking-system-pitch-proposal.md
@@ -16,3 +21,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+
+# OS
+.DS_Store
+Thumbs.db

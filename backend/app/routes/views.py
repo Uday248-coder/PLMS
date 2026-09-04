@@ -1,15 +1,19 @@
-"""Static views + health. No auth (pages do their own login)."""
+"""Static views + health. Serves the React SPA from frontend/dist/."""
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 
 router = APIRouter()
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
+DIST_DIR = FRONTEND_DIR / "dist"
+ASSETS_DIR = DIST_DIR / "assets"
+
+_index = DIST_DIR / "index.html"
 
 
-def _page(name: str):
-    f = FRONTEND_DIR / name
-    return FileResponse(str(f)) if f.exists() else {"detail": f"{name} missing"}
+def _spa():
+    return FileResponse(str(_index)) if _index.exists() else {"detail": "frontend not built"}
 
 
 @router.get("/api/health")
@@ -19,34 +23,25 @@ def health():
 
 @router.get("/")
 def root():
-    return _page("index.html")
-
-
-@router.get("/shared.js")
-def shared_js():
-    return FileResponse(str(FRONTEND_DIR / "shared.js"), media_type="application/javascript")
-
-
-@router.get("/manifest.json")
-def manifest():
-    return FileResponse(str(FRONTEND_DIR / "manifest.json"), media_type="application/json")
-
-
-@router.get("/sw.js")
-def service_worker():
-    return FileResponse(str(FRONTEND_DIR / "sw.js"), media_type="application/javascript")
+    return _spa()
 
 
 @router.get("/guard")
 def guard_view():
-    return _page("guard.html")
+    return _spa()
 
 
 @router.get("/kiosk")
 def kiosk_view():
-    return _page("kiosk.html")
+    return _spa()
 
 
 @router.get("/admin")
 def admin_view():
-    return _page("admin.html")
+    return _spa()
+
+
+# Mount /assets/ only if the dist build exists.
+# This must be registered on the app (not the router) so we do it here
+# at import time — the main.py include_router call picks it up.
+# NOTE: static mount is added in main.py after all routers.
