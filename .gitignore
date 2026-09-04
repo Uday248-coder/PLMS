@@ -1,0 +1,18 @@
+# Backend-only repo for now (frontend joins later).
+/frontend/
+graphify-out/
+docs/
+parking-slot-management-build-plan.md
+parking-system-pitch-proposal.md
+
+# Secrets / local state
+.env
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
