@@ -9,6 +9,8 @@ export class ApiError extends Error {
   }
 }
 
+let _redirecting = false;
+
 export async function api<T = unknown>(
   path: string,
   method: string = "GET",
@@ -29,13 +31,23 @@ export async function api<T = unknown>(
   if (r.status === 401) {
     localStorage.removeItem("park_token");
     localStorage.removeItem("park_who");
-    window.location.reload();
+    if (!_redirecting) {
+      _redirecting = true;
+      window.location.assign("/");
+    }
     throw new ApiError(401, "Session expired — please log in again.");
   }
 
   if (!r.ok) {
-    const text = await r.text();
-    throw new ApiError(r.status, text || `Request failed (${r.status})`);
+    let message = `Request failed (${r.status})`;
+    try {
+      const data = await r.json();
+      message = data?.detail ?? JSON.stringify(data);
+    } catch {
+      const text = await r.text().catch(() => "");
+      if (text) message = text;
+    }
+    throw new ApiError(r.status, message);
   }
 
   return r.json();

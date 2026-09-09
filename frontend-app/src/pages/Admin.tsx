@@ -7,6 +7,7 @@ import { Badge } from "../components/ui/Badge";
 import { SlotTile } from "../components/SlotTile";
 import { AuthBar } from "../components/AuthBar";
 import { api } from "../lib/api";
+import { getToken } from "../lib/auth";
 import { liveChannel } from "../lib/live";
 import type {
   Lot,
@@ -86,7 +87,7 @@ export default function Admin() {
   useEffect(() => {
     refresh();
     liveRef.current?.stop();
-    liveRef.current = liveChannel("/ws/admin", () => refresh(), () => refresh(), 7000);
+    liveRef.current = liveChannel("/ws/admin", () => refresh(), () => refresh(), 7000, undefined, getToken());
     return () => liveRef.current?.stop();
   }, [refresh]);
 

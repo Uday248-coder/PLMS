@@ -4,6 +4,7 @@ from app.main import app
 from app.database import Base, engine, SessionLocal
 from app.auth import hash_password
 from app import models
+from app.models import GuardLot
 
 client = TestClient(app)
 import uuid as _uuid
@@ -24,7 +25,10 @@ def _guard_token(lot_id: str):
     name = f"g-{_uuid.uuid4().hex[:6]}"
     db = SessionLocal()
     try:
-        db.add(models.Guard(name=name, password_hash=hash_password("pw123456"), lot_ids=lot_id))
+        guard = models.Guard(name=name, password_hash=hash_password("pw123456"))
+        db.add(guard)
+        db.flush()
+        db.add(models.GuardLot(guard_id=guard.id, lot_id=lot_id))
         db.commit()
     finally:
         db.close()
@@ -35,6 +39,10 @@ def _guard_token(lot_id: str):
 
 def _H(tok):
     return {"Authorization": f"Bearer {tok}"}
+
+
+def _plate():
+    return f"XX-{_uuid.uuid4().hex[:6].upper()}"
 
 
 def _lot(name, car=1, bike=0):
@@ -48,10 +56,11 @@ def test_full_self_report_flow():
     lot = _lot("T1", car=1, bike=0)
     lid = lot["lot_id"]
     gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     assert c["status"] == "reserved_pending"
     slots = client.get(f"/api/lots/{lid}/slots").json()
     assert slots[0]["status"] == "reserved_pending"
+    assert slots[0]["vehicle_ref"] is not None  # plate visible to guard
     r = client.post("/api/driver/parked", json={"session_id": c["session_id"]}).json()
     assert r["status"] == "self_reported"
     r = client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh).json()
@@ -65,15 +74,15 @@ def test_full_self_report_flow():
 def test_last_slot_race_single_winner():
     lot = _lot("RACE", car=1, bike=0)
     lid = lot["lot_id"]
-    first = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car"})
+    first = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "vehicle_ref": _plate()})
     assert first.status_code == 200
-    second = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car"})
+    second = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "vehicle_ref": _plate()})
     assert second.status_code == 409  # only one wins, other gets lot-full
 
 
 def test_illegal_transition_rejected():
     lot = _lot("ILL", car=1, bike=0)
-    c = client.post("/api/checkin", json={"lot_id": lot["lot_id"], "vehicle_type": "car"}).json()
+    c = client.post("/api/checkin", json={"lot_id": lot["lot_id"], "vehicle_type": "car", "vehicle_ref": _plate()}).json()
     # reserved_pending -> guard_checkout is illegal (must confirm or timeout first)
     r = client.post("/api/guard/checkout", json={"session_id": c["session_id"]},
                     headers=_H(_guard_token(lot["lot_id"])))
@@ -84,7 +93,7 @@ def test_guard_deny_is_terminal_for_driver():
     lot = _lot("DENY", car=1, bike=0)
     lid = lot["lot_id"]
     gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     client.post("/api/driver/parked", json={"session_id": c["session_id"]})
     d = client.post("/api/guard/deny", json={"session_id": c["session_id"]}, headers=gh).json()
     assert d["status"] == "mismatch" and d.get("terminal") is True
@@ -107,22 +116,32 @@ def test_guard_confirm_bogus_session_404():
 def test_checkin_validation():
     lot = _lot("VAL", car=2, bike=0)
     lid = lot["lot_id"]
-    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "spaceship", "flow_type": "self_report"})
+    # bad vehicle type
+    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "spaceship", "flow_type": "self_report", "vehicle_ref": _plate()})
     assert r.status_code == 422, r.text
-    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "teleport"})
+    # bad flow type
+    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "teleport", "vehicle_ref": _plate()})
     assert r.status_code == 422, r.text
-    r = client.post("/api/checkin", json={"lot_id": "no-such-lot", "vehicle_type": "car", "flow_type": "self_report"})
+    # unknown lot
+    r = client.post("/api/checkin", json={"lot_id": "no-such-lot", "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()})
     assert r.status_code == 404, r.text
+    # bad estimated_minutes
     for bad_est in (-5, 0, 999999999999):
         r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car",
-                                              "flow_type": "self_report", "estimated_minutes": bad_est})
+                                              "flow_type": "self_report", "estimated_minutes": bad_est,
+                                              "vehicle_ref": _plate()})
         assert r.status_code == 422, (bad_est, r.text)
-    # default (no estimate) must leave estimated_end_time NULL, not now()
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    # empty plate rejected
+    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": ""})
+    assert r.status_code == 422, r.text
+    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": "   "})
+    assert r.status_code == 422, r.text
+    # default estimated_minutes (420) sets estimated_end_time
+    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     db = SessionLocal()
     try:
         sess = db.get(models.ParkingSession, c["session_id"])
-        assert sess is not None and sess.estimated_end_time is None
+        assert sess is not None and sess.estimated_end_time is not None
     finally:
         db.close()
 
@@ -145,10 +164,11 @@ def test_provision_validation_and_duplicate():
 def test_unknown_lot_slots_and_alerts_404():
     assert client.get("/api/lots/no-such-id/slots").status_code == 404
     assert client.get("/api/lots/no-such-id/alerts").status_code == 404
-    # recent_sessions limit is clamped 1..100 (negative must not dump the table)
-    r = client.get("/api/sessions/recent", params={"limit": -1})
+    # recent_sessions requires admin auth; limit is clamped 1..100
+    ah = _H(_admin_token())
+    r = client.get("/api/sessions/recent", params={"limit": -1}, headers=ah)
     assert r.status_code == 200 and len(r.json()) <= 100
-    r = client.get("/api/sessions/recent", params={"limit": 100000})
+    r = client.get("/api/sessions/recent", params={"limit": 100000}, headers=ah)
     assert r.status_code == 200 and len(r.json()) <= 100
 
 
@@ -156,12 +176,12 @@ def test_stale_session_tap_410():
     lot = _lot("STALE", car=1, bike=0)
     lid = lot["lot_id"]
     gh = _H(_guard_token(lid))
-    a = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    a = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     client.post("/api/driver/parked", json={"session_id": a["session_id"]})
     client.post("/api/guard/confirm", json={"session_id": a["session_id"]}, headers=gh)
     client.post("/api/driver/leaving", json={"session_id": a["session_id"]})
     client.post("/api/guard/confirm", json={"session_id": a["session_id"]}, headers=gh)  # slot free again
-    b = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    b = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     assert b["session_id"] != a["session_id"]
     r = client.post("/api/driver/parked", json={"session_id": a["session_id"]})
     assert r.status_code == 410, r.text
@@ -172,12 +192,12 @@ def test_admin_resolve_mismatch():
     lid = lot["lot_id"]
     gh = _H(_guard_token(lid))
     ah = _H(_admin_token())
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     client.post("/api/driver/parked", json={"session_id": c["session_id"]})
     d = client.post("/api/guard/deny", json={"session_id": c["session_id"]}, headers=gh).json()
     assert d["status"] == "mismatch"
     assert client.post("/api/admin/resolve", json={"session_id": "no-such-id"}, headers=ah).status_code == 404
-    other = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report"}).json()
+    other = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     r = client.post("/api/admin/resolve", json={"session_id": other["session_id"]}, headers=ah)
     assert r.status_code == 409, r.text
     r = client.post("/api/admin/resolve", json={"session_id": c["session_id"]}, headers=ah)
@@ -201,7 +221,7 @@ def test_auth_scoping():
     r = client.post("/api/auth/login", json={"name": "admin", "password": "wrong", "role": "admin"})
     assert r.status_code == 401
     # guard from lot A cannot touch lot B session
-    c = client.post("/api/checkin", json={"lot_id": b["lot_id"], "vehicle_type": "car", "flow_type": "self_report"}).json()
+    c = client.post("/api/checkin", json={"lot_id": b["lot_id"], "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     client.post("/api/driver/parked", json={"session_id": c["session_id"]})
     r = client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh_a)
     assert r.status_code == 403, r.text
@@ -209,7 +229,7 @@ def test_auth_scoping():
     r = client.post("/api/lots/provision", params={"name": "N-Y", "car": 1}, headers=gh_a)
     assert r.status_code == 403, r.text
     # same-lot guard works
-    c2 = client.post("/api/checkin", json={"lot_id": a["lot_id"], "vehicle_type": "car", "flow_type": "self_report"}).json()
+    c2 = client.post("/api/checkin", json={"lot_id": a["lot_id"], "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
     client.post("/api/driver/parked", json={"session_id": c2["session_id"]})
     r = client.post("/api/guard/confirm", json={"session_id": c2["session_id"]}, headers=gh_a)
     assert r.status_code == 200, r.text

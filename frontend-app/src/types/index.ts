@@ -22,6 +22,8 @@ export interface Slot {
   vehicle_type: VehicleType;
   status: SlotStatus;
   session: string | null;
+  vehicle_ref: string | null;
+  estimated_end: string | null;
 }
 
 export interface Alert {
@@ -30,6 +32,7 @@ export interface Alert {
   number: string;
   status: SlotStatus;
   session: string;
+  vehicle_ref: string | null;
 }
 
 export interface LoginResponse {

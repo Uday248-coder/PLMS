@@ -129,8 +129,15 @@ export default function Guard() {
                     key={a.slot_id}
                     className="bg-slate-50 border border-slate-200 rounded-lg p-3"
                   >
-                    <div className="font-mono font-bold text-sm">
-                      {a.zone}-{a.number}
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-sm">
+                        {a.zone}-{a.number}
+                      </span>
+                      {a.vehicle_ref && (
+                        <span className="text-xs font-mono font-semibold text-slate-600">
+                          🚘 {a.vehicle_ref}
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-500 mb-2">
                       {a.status.replace(/_/g, " ")}

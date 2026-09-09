@@ -4,6 +4,8 @@ from pydantic import BaseModel
 VALID_VEHICLE_TYPES = {"car", "bike", "truck"}
 VALID_FLOW_TYPES = {"guard_managed", "self_report"}
 
+DEFAULT_ESTIMATED_MINUTES = 420  # 7 hours
+
 
 class Login(BaseModel):
     name: str
@@ -16,7 +18,7 @@ class Checkin(BaseModel):
     vehicle_type: str = "car"
     vehicle_ref: str = ""
     flow_type: str = "self_report"
-    estimated_minutes: int | None = None
+    estimated_minutes: int = DEFAULT_ESTIMATED_MINUTES
 
 
 class Tap(BaseModel):

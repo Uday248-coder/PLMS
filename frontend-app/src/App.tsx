@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Layout } from "./components/layout/Layout";
 import { liveChannel } from "./lib/live";
+import { getToken } from "./lib/auth";
 import Hub from "./pages/Hub";
 import Guard from "./pages/Guard";
 import Kiosk from "./pages/Kiosk";
@@ -12,11 +13,12 @@ function App() {
 
   useEffect(() => {
     const ch = liveChannel(
-      "/ws/lot/S1",
+      "/ws/admin",
       () => {},
       () => setConnected(false),
       10000,
-      (c) => setConnected(c)
+      (c) => setConnected(c),
+      getToken()
     );
     return () => ch.stop();
   }, []);

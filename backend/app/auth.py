@@ -1,5 +1,5 @@
 """JWT auth, two roles (guard, admin). No driver accounts (walk-in)."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt
 from passlib.context import CryptContext
 from .config import settings
@@ -16,7 +16,7 @@ def verify_password(raw: str, hashed: str) -> bool:
 
 
 def create_token(sub: str, role: str) -> str:
-    exp = datetime.utcnow() + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+    exp = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
     return jwt.encode({"sub": sub, "role": role, "exp": exp},
                       settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 

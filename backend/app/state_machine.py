@@ -1,5 +1,5 @@
 """Centrally-enforced state machine (§2). NOTHING mutates slot.status outside this module."""
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from . import models
 
@@ -25,7 +25,8 @@ TRANSITIONS = {
 
 def audit(db: Session, *, actor_id="", actor_type="system", action, session_id=None, slot_id=None):
     db.add(models.AuditLog(actor_id=actor_id, actor_type=actor_type, action=action,
-                           session_id=session_id, slot_id=slot_id, timestamp=datetime.utcnow()))
+                           session_id=session_id, slot_id=slot_id,
+                           timestamp=datetime.now(timezone.utc)))
 
 
 def transition(db: Session, slot: models.Slot, event: str, *, actor_id="", actor_type="system",
@@ -36,13 +37,18 @@ def transition(db: Session, slot: models.Slot, event: str, *, actor_id="", actor
         raise ValueError(f"Illegal transition: {slot.status} + {event}")
     to_status = TRANSITIONS[key]
     from_status = slot.status
+    now = datetime.now(timezone.utc)
     slot.status = to_status
     if session is not None:
         session.status = to_status
         if to_status == "occupied" and session.start_time is None:
-            session.start_time = datetime.utcnow()
+            session.start_time = now
         if to_status == "free" and session.actual_end_time is None:
-            session.actual_end_time = datetime.utcnow()
+            session.actual_end_time = now
+    if to_status in ("free", "mismatch"):
+        slot.reserved_at = None
+    if to_status == "reserved_pending":
+        slot.reserved_at = now
     if to_status == "mismatch":
         # Never block the physical spot on a dispute: reopen immediately, flag session.
         slot.status = "free"

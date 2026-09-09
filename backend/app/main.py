@@ -1,5 +1,7 @@
 """App factory: wiring only. Routes live in app/routes/, auth in deps.py, seed in seed.py."""
 import asyncio
+import logging
+import logging.config
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
@@ -7,12 +9,34 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 from .background import sweep_once
+from .config import get_cors_origins
 from .database import Base, engine, SessionLocal
+from . import models
 from .routes import admin, driver, guard, lots, sessions, views, ws
 from .seed import ensure_demo_lots, ensure_seed_users
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _DIST_DIR = _FRONTEND_DIR / "dist"
+
+logging.config.dictConfig({
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "default": {
+            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            "datefmt": "%Y-%m-%dT%H:%M:%S",
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "default",
+        }
+    },
+    "root": {"handlers": ["console"], "level": "INFO"},
+})
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -20,10 +44,11 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        lots = ensure_demo_lots(db)
-        ensure_seed_users(db, ",".join(l.id for l in lots))
+        seeded_lots = ensure_demo_lots(db)
+        ensure_seed_users(db, ",".join(l.id for l in seeded_lots))
     finally:
         db.close()
+
     stop = asyncio.Event()
 
     async def sweeper():
@@ -31,28 +56,27 @@ async def lifespan(app: FastAPI):
             try:
                 await asyncio.to_thread(sweep_once)
             except Exception:
-                pass
+                log.exception("Unhandled error in background sweeper")
             try:
                 await asyncio.wait_for(stop.wait(), timeout=60)
             except asyncio.TimeoutError:
                 pass
 
     task = asyncio.create_task(sweeper())
+    log.info("Parking system started")
     yield
     stop.set()
     await task
+    log.info("Parking system shut down")
 
 
-Base.metadata.create_all(bind=engine)
-_seed_db = SessionLocal()
-try:
-    _lots = ensure_demo_lots(_seed_db)
-    ensure_seed_users(_seed_db, ",".join(l.id for l in _lots))
-finally:
-    _seed_db.close()
-
-app = FastAPI(title="Parking Slot Management (demo)", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="Parking Slot Management", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_origins(),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.exception_handler(ValueError)

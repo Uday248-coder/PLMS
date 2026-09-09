@@ -10,11 +10,26 @@ import type { Lot, VehicleType, SlotStatus, CheckinResponse, WsMessage } from ".
 
 type Step = "pick" | "ticket";
 
+const DURATION_OPTIONS = [
+  { label: "1 hour", value: 60 },
+  { label: "2 hours", value: 120 },
+  { label: "3 hours", value: 180 },
+  { label: "4 hours", value: 240 },
+  { label: "5 hours", value: 300 },
+  { label: "6 hours", value: 360 },
+  { label: "7 hours (default)", value: 420 },
+  { label: "8 hours", value: 480 },
+  { label: "10 hours", value: 600 },
+  { label: "12 hours", value: 720 },
+  { label: "24 hours", value: 1440 },
+];
+
 export default function Kiosk() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [lotId, setLotId] = useState("");
   const [vtype, setVtype] = useState<VehicleType>("car");
   const [plate, setPlate] = useState("");
+  const [estMinutes, setEstMinutes] = useState(420);
   const [step, setStep] = useState<Step>("pick");
   const [ticket, setTicket] = useState<CheckinResponse | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SlotStatus>("reserved_pending");
@@ -71,19 +86,24 @@ export default function Kiosk() {
   async function handleCheckin() {
     setErr("");
     setDenied(false);
+    if (!plate.trim()) {
+      setErr("Please enter your vehicle plate number.");
+      return;
+    }
     try {
       const r = await api<CheckinResponse>("/api/checkin", "POST", {
         lot_id: lotId,
         vehicle_type: vtype,
-        vehicle_ref: plate,
+        vehicle_ref: plate.trim(),
         flow_type: "self_report",
+        estimated_minutes: estMinutes,
       });
       sessionIdRef.current = r.session_id;
       setTicket(r);
       setSessionStatus(r.status);
       setStep("ticket");
     } catch (e: any) {
-      setErr("Full or error: " + e.message);
+      setErr(e.message);
     }
   }
 
@@ -132,7 +152,16 @@ export default function Kiosk() {
     setDenied(false);
     setDeniedMsg("");
     setErr("");
+    setPlate("");
+    setEstMinutes(420);
     sessionIdRef.current = null;
+  }
+
+  function formatDuration(mins: number): string {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h === 0) return `${m} min`;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
   }
 
   return (
@@ -175,11 +204,24 @@ export default function Kiosk() {
                 <option value="truck">🚛 Truck</option>
               </Select>
               <Input
-                label="Plate (optional)"
-                placeholder="ABC 1234"
+                label="Plate Number"
+                placeholder="MH12-AB-1234"
                 value={plate}
                 onChange={(e) => setPlate(e.target.value)}
               />
+            </div>
+            <div className="mb-4">
+              <Select
+                label="Estimated Parking Duration"
+                value={estMinutes}
+                onChange={(e) => setEstMinutes(Number(e.target.value))}
+              >
+                {DURATION_OPTIONS.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </Select>
             </div>
             {err && <p className="text-sm text-red-600 mb-2">{err}</p>}
             <Button
@@ -217,6 +259,14 @@ export default function Kiosk() {
                   {ticket.zone}-{ticket.number}
                 </div>
                 <Badge status={sessionStatus} size="md" />
+                <div className="mt-3 space-y-1">
+                  <p className="text-sm text-slate-600 font-medium">
+                    🚘 {plate}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Booked for {formatDuration(estMinutes)}
+                  </p>
+                </div>
               </div>
 
               <Button

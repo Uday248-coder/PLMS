@@ -1,4 +1,5 @@
 """Shared auth dependencies. Kiosk/driver endpoints stay public (walk-in)."""
+import logging
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -6,9 +7,11 @@ from .database import get_db
 from . import models
 from .auth import decode_token
 
+log = logging.getLogger(__name__)
+
 
 def current_user(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
-    """Bearer JWT → (role, user)."""
+    """Bearer JWT -> (role, user)."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "login required")
     try:
@@ -36,8 +39,15 @@ def require_admin(who=Depends(current_user)):
     return who
 
 
-def guard_can_touch(guard: models.Guard, lot_id: str) -> bool:
-    return lot_id in (guard.lot_ids or "").split(",")
+def guard_can_touch(guard: models.Guard, lot_id: str, db: Session) -> bool:
+    """Return True if this guard is assigned to the given lot (GuardLot table)."""
+    row = db.execute(
+        select(models.GuardLot).where(
+            models.GuardLot.guard_id == guard.id,
+            models.GuardLot.lot_id == lot_id,
+        )
+    ).scalar_one_or_none()
+    return row is not None
 
 
 def guard_session_check(db: Session, session_id: str, who) -> models.ParkingSession:
@@ -47,6 +57,6 @@ def guard_session_check(db: Session, session_id: str, who) -> models.ParkingSess
     sess = db.get(models.ParkingSession, session_id)
     if not sess:
         raise HTTPException(404, "session not found")
-    if not guard_can_touch(user, sess.lot_id):
+    if not guard_can_touch(user, sess.lot_id, db):
         raise HTTPException(403, "not your assigned lot")
     return sess
