@@ -22,10 +22,18 @@ export function liveChannel(
   function connect() {
     if (stopped) return;
     try {
-      const proto = location.protocol === "https:" ? "wss://" : "ws://";
-      const url = token
-        ? `${proto}${location.host}${wsPath}?token=${encodeURIComponent(token)}`
-        : `${proto}${location.host}${wsPath}`;
+      // Split-deploy: derive the WS endpoint from VITE_API_URL when set
+      // (e.g. https://parking-backend.onrender.com -> wss://parking-backend.onrender.com).
+      const apiBase = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "");
+      let url: string;
+      if (apiBase) {
+        const wsBase = apiBase.replace(/^http/, "ws");
+        url = `${wsBase}${wsPath}`;
+      } else {
+        const proto = location.protocol === "https:" ? "wss://" : "ws://";
+        url = `${proto}${location.host}${wsPath}`;
+      }
+      if (token) url += `?token=${encodeURIComponent(token)}`;
       ws = new WebSocket(url);
 
       ws.onmessage = (ev) => {

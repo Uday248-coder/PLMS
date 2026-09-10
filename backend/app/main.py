@@ -11,8 +11,9 @@ from starlette.staticfiles import StaticFiles
 from .background import sweep_once
 from .config import get_cors_origins
 from .database import Base, engine, SessionLocal
-from . import models
-from .routes import admin, driver, guard, lots, sessions, views, ws
+from . import models  # noqa: F401 — ensures models register for create_all
+from .realtime import notify
+from .routes import admin, auth, driver, guard, lots, sessions, views, ws
 from .seed import ensure_demo_lots, ensure_seed_users
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
@@ -54,7 +55,11 @@ async def lifespan(app: FastAPI):
     async def sweeper():
         while not stop.is_set():
             try:
-                await asyncio.to_thread(sweep_once)
+                result = await asyncio.to_thread(sweep_once)
+                for evt in result.get("_overdue_events", []):
+                    lot_id = evt.pop("lot_id", "")
+                    if lot_id:
+                        await notify(lot_id, evt)
             except Exception:
                 log.exception("Unhandled error in background sweeper")
             try:
@@ -84,7 +89,7 @@ async def value_error_handler(request, exc):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
-for _router in (views.router, lots.router, sessions.router, driver.router,
+for _router in (auth.router, views.router, lots.router, sessions.router, driver.router,
                 guard.router, admin.router, ws.router):
     app.include_router(_router)
 

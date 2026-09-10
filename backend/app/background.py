@@ -1,4 +1,4 @@
-"""Background sweeps: reserved_pending timeout, self_report grace auto-promote, overstay flag."""
+"""Background sweeps: reserved_pending timeout, self_report grace auto-promote, overdue notification."""
 import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
@@ -13,18 +13,17 @@ log = logging.getLogger(__name__)
 def sweep_once(now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     db = SessionLocal()
-    counts = {"reserved_reverted": 0, "self_promoted": 0, "leave_promoted": 0, "overstays": 0}
+    counts = {"reserved_reverted": 0, "self_promoted": 0, "leave_promoted": 0,
+              "overstays": 0, "overdue_notified": 0}
+    overdue_events: list[dict] = []  # collected for WS push after commit
     try:
         # reserved_pending with no driver action -> free.
-        # Use slot.reserved_at (set by the state machine on assign) as the reliable clock.
-        # Fall back to AuditLog lookup only for rows created before the reserved_at column existed.
         pending = db.execute(
             select(models.Slot).where(models.Slot.status == "reserved_pending")
         ).scalars().all()
         for slot in pending:
             reference_time = slot.reserved_at
             if reference_time is None:
-                # Legacy row: find timestamp from AuditLog
                 last = db.execute(
                     select(models.AuditLog)
                     .where(models.AuditLog.slot_id == slot.id)
@@ -34,7 +33,6 @@ def sweep_once(now: datetime | None = None) -> dict:
                 reference_time = last.timestamp if last else None
             if reference_time is None:
                 continue
-            # Normalise to offset-aware for comparison
             if reference_time.tzinfo is None:
                 reference_time = reference_time.replace(tzinfo=timezone.utc)
             if now - reference_time > timedelta(minutes=settings.RESERVED_PENDING_TIMEOUT_MIN):
@@ -45,7 +43,7 @@ def sweep_once(now: datetime | None = None) -> dict:
                 counts["reserved_reverted"] += 1
                 log.info("Sweep: timed out reserved slot %s", slot.id)
 
-        # self_reported / self_reported_leaving grace window — use session.created_at.
+        # self_reported / self_reported_leaving grace window.
         for status, event, key in [
             ("self_reported", "grace_promote", "self_promoted"),
             ("self_reported_leaving", "grace_promote", "leave_promoted"),
@@ -61,7 +59,6 @@ def sweep_once(now: datetime | None = None) -> dict:
                     if sess:
                         reference_time = sess.created_at
                 if reference_time is None:
-                    # Legacy fallback
                     last = db.execute(
                         select(models.AuditLog)
                         .where(models.AuditLog.slot_id == slot.id)
@@ -78,7 +75,7 @@ def sweep_once(now: datetime | None = None) -> dict:
                     counts[key] += 1
                     log.info("Sweep: grace-promoted slot %s via %s", slot.id, event)
 
-        # Overstay visibility (no enforcement)
+        # Overdue detection + notification push.
         active = db.execute(
             select(models.ParkingSession).where(
                 models.ParkingSession.actual_end_time.is_(None),
@@ -87,10 +84,34 @@ def sweep_once(now: datetime | None = None) -> dict:
             )
         ).scalars().all()
         counts["overstays"] = len(active)
+
+        for sess in active:
+            if sess.overdue_notified_at is not None:
+                continue  # already notified; skip until driver extends (which resets this flag)
+            est = sess.estimated_end_time
+            if est and est.tzinfo is None:
+                est = est.replace(tzinfo=timezone.utc)
+            minutes_over = int((now - est).total_seconds() / 60) if est else 0
+            sess.overdue_notified_at = now
+            counts["overdue_notified"] += 1
+            overdue_events.append({
+                "event": "overdue",
+                "session_id": sess.id,
+                "slot_id": sess.slot_id,
+                "lot_id": sess.lot_id,
+                "vehicle_ref": sess.vehicle_ref or "",
+                "minutes_over": minutes_over,
+            })
+            log.info("Sweep: overdue session=%s slot=%s plate=%s +%dmin",
+                     sess.id, sess.slot_id, sess.vehicle_ref, minutes_over)
+
         db.commit()
     except Exception:
         log.exception("sweep_once failed — slots may be stuck in pending states")
         db.rollback()
     finally:
         db.close()
+
+    # Return events for WS push (caller in main.py handles async broadcast)
+    counts["_overdue_events"] = overdue_events
     return counts

@@ -1,11 +1,8 @@
 """Auto-assignment: nearest free slot of matching type. Demo = lowest zone+number."""
-import logging
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from . import models
 from .config import settings
-
-log = logging.getLogger(__name__)
 
 
 def nearest_free_slot(db: Session, lot_id: str, vehicle_type: str) -> models.Slot | None:

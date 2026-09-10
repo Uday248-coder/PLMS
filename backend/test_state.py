@@ -245,3 +245,108 @@ def test_login_throttle_429():
             break
         assert r.status_code == 401, (r.status_code, r.text)
     assert got_429, "expected HTTP 429 after exhausting login budget"
+    # Clear rate limiter so subsequent tests can log in
+    from app.routes.admin import _login_hits
+    _login_hits.clear()
+    _ADMIN_CACHE.clear()
+
+
+def test_extend_occupied_session():
+    lot = _lot("EXT", car=1, bike=0)
+    lid = lot["lot_id"]
+    gh = _H(_guard_token(lid))
+    c = client.post("/api/checkin", json={
+        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
+        "vehicle_ref": _plate(), "estimated_minutes": 60,
+    }).json()
+    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
+    client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh)
+    # Extend by 120 minutes
+    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 120})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert "estimated_end" in data
+    assert data["additional_minutes"] == 120
+    # Verify in DB: estimated_end_time moved forward
+    db = SessionLocal()
+    try:
+        sess = db.get(models.ParkingSession, c["session_id"])
+        assert sess.estimated_end_time is not None
+    finally:
+        db.close()
+
+
+def test_extend_overdue_clears_flag():
+    lot = _lot("EXT-OD", car=1, bike=0)
+    lid = lot["lot_id"]
+    gh = _H(_guard_token(lid))
+    c = client.post("/api/checkin", json={
+        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
+        "vehicle_ref": _plate(), "estimated_minutes": 60,
+    }).json()
+    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
+    client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh)
+    # Simulate overdue: set overdue_notified_at
+    db = SessionLocal()
+    try:
+        from datetime import datetime, timezone
+        sess = db.get(models.ParkingSession, c["session_id"])
+        sess.overdue_notified_at = datetime.now(timezone.utc)
+        db.commit()
+    finally:
+        db.close()
+    # Extend — should clear overdue_notified_at
+    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 30})
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        sess = db.get(models.ParkingSession, c["session_id"])
+        assert sess.overdue_notified_at is None, "extend should clear overdue flag"
+    finally:
+        db.close()
+
+
+def test_extend_after_checkout_410():
+    lot = _lot("EXT-CK", car=1, bike=0)
+    lid = lot["lot_id"]
+    gh = _H(_guard_token(lid))
+    c = client.post("/api/checkin", json={
+        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
+        "vehicle_ref": _plate(), "estimated_minutes": 60,
+    }).json()
+    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
+    client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh)
+    # Guard checks out — slot freed
+    client.post("/api/guard/checkout", json={"session_id": c["session_id"]}, headers=gh)
+    # Extend a closed session → 410
+    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 60})
+    assert r.status_code == 410, r.text
+
+
+def test_extend_exceeds_24h_cap():
+    lot = _lot("EXT-CAP", car=1, bike=0)
+    lid = lot["lot_id"]
+    c = client.post("/api/checkin", json={
+        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
+        "vehicle_ref": _plate(), "estimated_minutes": 1440,  # already maxed at 24h
+    }).json()
+    # Extend by 1 more minute — should be rejected
+    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 1})
+    assert r.status_code == 422, r.text
+    assert "24h" in r.json().get("detail", "").lower() or "24h" in r.text.lower()
+
+
+def test_extend_denied_session_410():
+    lot = _lot("EXT-DN", car=1, bike=0)
+    lid = lot["lot_id"]
+    gh = _H(_guard_token(lid))
+    c = client.post("/api/checkin", json={
+        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
+        "vehicle_ref": _plate(), "estimated_minutes": 60,
+    }).json()
+    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
+    # Guard denies
+    client.post("/api/guard/deny", json={"session_id": c["session_id"]}, headers=gh)
+    # Extend a denied session → 410
+    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 60})
+    assert r.status_code == 410, r.text

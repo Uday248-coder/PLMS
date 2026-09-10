@@ -99,6 +99,15 @@ export interface RecentSession {
   end: string;
 }
 
+export interface OverdueAlert {
+  slot_id: string;
+  zone: string;
+  number: string;
+  vehicle_ref: string;
+  session_id: string;
+  minutes_over: number;
+}
+
 export interface WsMessage {
   event?: string;
   slot_id?: string;
@@ -108,6 +117,9 @@ export interface WsMessage {
   message?: string;
   lot_id?: string;
   slot_status?: SlotStatus;
+  vehicle_ref?: string;
+  minutes_over?: number;
+  new_end?: string;
 }
 
 export const VEHICLE_ICONS: Record<VehicleType, string> = {

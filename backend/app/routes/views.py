@@ -1,8 +1,7 @@
-"""Static views + health. Serves the React SPA from frontend/dist/."""
+"""Static views + health. Serves the React SPA from frontend/dist/ (local monolith mode)."""
 from pathlib import Path
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from fastapi.responses import FileResponse
-from starlette.staticfiles import StaticFiles
 
 router = APIRouter()
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
@@ -33,6 +32,11 @@ def guard_view():
 
 @router.get("/kiosk")
 def kiosk_view():
+    return _spa()
+
+
+@router.get("/field")
+def field_view():
     return _spa()
 
 

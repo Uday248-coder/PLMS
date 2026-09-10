@@ -4,12 +4,13 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from .. import models
-from ..auth import create_token, verify_password
+from ..auth import create_token, hash_password, verify_password
 from ..background import sweep_once
 from ..deps import require_admin
 from ..realtime import notify
@@ -135,6 +136,45 @@ async def admin_resolve(body: Tap, db: Session = Depends(get_db), _admin=Depends
                                "status": slot.status, "session_id": sess.id})
     return {"status": sess.status, "session_id": sess.id}
 
+
+class GuardCreate(BaseModel):
+    name: str
+    password: str
+    lot_ids: list[str] = []
+
+class GuardReset(BaseModel):
+    new_password: str
+
+@router.get("/api/admin/guards")
+def list_guards(db: Session = Depends(get_db), _admin=Depends(require_admin)):
+    guards = db.execute(select(models.Guard)).scalars().all()
+    out = []
+    for g in guards:
+        lots = db.execute(select(models.GuardLot.lot_id).where(models.GuardLot.guard_id == g.id)).scalars().all()
+        out.append({"id": g.id, "name": g.name, "lot_ids": lots})
+    return {"guards": out}
+
+@router.post("/api/admin/guards")
+def create_guard(body: GuardCreate, db: Session = Depends(get_db), _admin=Depends(require_admin)):
+    if db.execute(select(models.Guard).where(models.Guard.name == body.name)).scalars().first():
+        raise HTTPException(400, "Guard name already exists")
+    guard = models.Guard(name=body.name, password_hash=hash_password(body.password))
+    db.add(guard)
+    db.commit()
+    db.refresh(guard)
+    for lid in body.lot_ids:
+        db.add(models.GuardLot(guard_id=guard.id, lot_id=lid))
+    db.commit()
+    return {"id": guard.id, "name": guard.name, "lot_ids": body.lot_ids}
+
+@router.put("/api/admin/guards/{guard_id}/reset_password")
+def reset_guard_password(guard_id: str, body: GuardReset, db: Session = Depends(get_db), _admin=Depends(require_admin)):
+    guard = db.get(models.Guard, guard_id)
+    if not guard:
+        raise HTTPException(404, "Guard not found")
+    guard.password_hash = hash_password(body.new_password)
+    db.commit()
+    return {"message": "Password reset successful"}
 
 @router.post("/api/sweep")
 def sweep(_admin=Depends(require_admin)):

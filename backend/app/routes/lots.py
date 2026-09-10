@@ -1,5 +1,6 @@
 """Lot endpoints: listing, default demo lot, admin provisioning, slot grid, alerts."""
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -109,6 +110,33 @@ def lot_alerts(lot_id: str, db: Session = Depends(get_db)):
             models.Slot.status.in_(["self_reported", "self_reported_leaving"]),
         )
     ).scalars().all()
+
+    # Overdue: active sessions in this lot that are past estimated_end_time
+    now = datetime.now(timezone.utc)
+    overdue_sessions = db.execute(
+        select(models.ParkingSession).where(
+            models.ParkingSession.lot_id == lot_id,
+            models.ParkingSession.actual_end_time.is_(None),
+            models.ParkingSession.estimated_end_time.is_not(None),
+            models.ParkingSession.estimated_end_time < now,
+        )
+    ).scalars().all()
+    overdue_list = []
+    for sess in overdue_sessions:
+        slot = db.get(models.Slot, sess.slot_id)
+        est = sess.estimated_end_time
+        if est and est.tzinfo is None:
+            est = est.replace(tzinfo=timezone.utc)
+        minutes_over = int((now - est).total_seconds() / 60) if est else 0
+        overdue_list.append({
+            "slot_id": sess.slot_id,
+            "zone": slot.zone if slot else "",
+            "number": slot.number if slot else "",
+            "vehicle_ref": sess.vehicle_ref or "",
+            "session_id": sess.id,
+            "minutes_over": minutes_over,
+        })
+
     return {
         "needs_guard_action": [
             {
@@ -122,5 +150,6 @@ def lot_alerts(lot_id: str, db: Session = Depends(get_db)):
                 ),
             }
             for s in pending
-        ]
+        ],
+        "overdue": overdue_list,
     }

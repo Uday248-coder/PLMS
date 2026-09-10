@@ -44,6 +44,7 @@ class ParkingSession(Base):
     id = Column(String, primary_key=True, default=new_id)
     slot_id = Column(String, ForeignKey("slots.id"), nullable=False, index=True)
     lot_id = Column(String, ForeignKey("lots.id"), nullable=False, index=True)
+    driver_id = Column(String, ForeignKey("drivers.id"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
     start_time = Column(DateTime(timezone=True), nullable=True)   # actual arrival confirm
     estimated_end_time = Column(DateTime(timezone=True), nullable=True)
@@ -52,6 +53,7 @@ class ParkingSession(Base):
     verified_by_guard_id = Column(String, nullable=True)
     status = Column(String, nullable=False)
     vehicle_ref = Column(String, default="")  # free-text plate, unverified (§6.1)
+    overdue_notified_at = Column(DateTime(timezone=True), nullable=True)  # set by sweeper, cleared on extend
 
 
 class GuardLot(Base):
@@ -74,6 +76,13 @@ class Admin(Base):
     __tablename__ = "admins"
     id = Column(String, primary_key=True, default=new_id)
     name = Column(String, nullable=False, unique=True)
+    password_hash = Column(String, nullable=False)
+
+
+class Driver(Base):
+    __tablename__ = "drivers"
+    id = Column(String, primary_key=True, default=new_id)
+    email = Column(String, nullable=False, unique=True)
     password_hash = Column(String, nullable=False)
 
 

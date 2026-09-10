@@ -1,4 +1,4 @@
-"""Session core: check-in, tap engine, history. Driver taps stay public (walk-in)."""
+"""Session core: check-in, tap engine, extend, history. Driver taps stay public (walk-in)."""
 import logging
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from ..database import get_db
 from .. import models
-from ..schemas import Checkin, Tap, VALID_FLOW_TYPES, VALID_VEHICLE_TYPES
-from ..state_machine import transition
+from ..schemas import Checkin, Tap, Extend, VALID_FLOW_TYPES, VALID_VEHICLE_TYPES, MAX_TOTAL_PARKING_MINUTES
+from ..state_machine import transition, audit as _audit
 from ..assignment import lot_full_response, nearest_free_slot
 from ..realtime import notify
 from ..deps import require_admin
@@ -49,7 +49,6 @@ async def checkin(body: Checkin, db: Session = Depends(get_db)):
         raise HTTPException(422, "vehicle_type must be one of car|bike|truck")
     if body.flow_type not in VALID_FLOW_TYPES:
         raise HTTPException(422, "flow_type must be one of guard_managed|self_report")
-    # Vehicle plate is mandatory for identification
     plate = (body.vehicle_ref or "").strip()
     if not plate:
         raise HTTPException(422, "vehicle_ref (plate number) is required")
@@ -73,7 +72,6 @@ async def checkin(body: Checkin, db: Session = Depends(get_db)):
     db.add(sess)
     db.flush()
     slot.current_session_id = sess.id
-    # guard_managed shortcut: guard marks occupied directly
     if body.flow_type == "guard_managed":
         transition(db, slot, "guard_confirm", actor_type="guard", session=sess)
     db.commit()
@@ -83,6 +81,55 @@ async def checkin(body: Checkin, db: Session = Depends(get_db)):
     return {
         "session_id": sess.id, "zone": slot.zone, "number": slot.number,
         "status": slot.status, "estimated_minutes": body.estimated_minutes,
+    }
+
+
+@router.post("/api/driver/extend")
+async def extend_session(body: Extend, db: Session = Depends(get_db)):
+    """Extend a parking session's estimated end time. Additive to current end, not now.
+    Clears overdue_notified_at so the sweeper can re-arm if the driver goes over again."""
+    if not (1 <= body.additional_minutes <= 1440):
+        raise HTTPException(422, "additional_minutes must be in 1..1440")
+    sess = db.get(models.ParkingSession, body.session_id)
+    if not sess:
+        raise HTTPException(404, "session not found")
+    if sess.status == "mismatch":
+        raise HTTPException(410, "This session was denied and cannot be extended.")
+    if sess.actual_end_time is not None:
+        raise HTTPException(410, "This session is already closed and cannot be extended.")
+    slot = db.get(models.Slot, sess.slot_id)
+    if not slot or slot.current_session_id != sess.id:
+        raise HTTPException(410, "This session is stale and cannot be extended.")
+    # 24h total cap from original created_at
+    now = datetime.now(timezone.utc)
+    created = sess.created_at
+    if created and created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    current_end = sess.estimated_end_time or now
+    if current_end.tzinfo is None:
+        current_end = current_end.replace(tzinfo=timezone.utc)
+    # Additive: extend from current end time (not from now)
+    new_end = max(current_end, now) + timedelta(minutes=body.additional_minutes)
+    if created and (new_end - created) > timedelta(minutes=MAX_TOTAL_PARKING_MINUTES):
+        remaining = MAX_TOTAL_PARKING_MINUTES - int((now - created).total_seconds() / 60)
+        raise HTTPException(
+            422,
+            f"Cannot exceed 24h total parking. You have about {max(0, remaining)} minutes remaining.",
+        )
+    sess.estimated_end_time = new_end
+    sess.overdue_notified_at = None  # re-arm overdue notification
+    _audit(db, actor_type="system",
+           action=f"extend +{body.additional_minutes}min -> {new_end.isoformat()}",
+           session_id=sess.id, slot_id=slot.id)
+    db.commit()
+    await notify(sess.lot_id, {
+        "event": "session_extended", "slot_id": slot.id,
+        "session_id": sess.id, "new_end": new_end.isoformat(),
+    })
+    log.info("Extended: session=%s +%dmin new_end=%s", sess.id, body.additional_minutes, new_end)
+    return {
+        "session_id": sess.id, "estimated_end": new_end.isoformat(),
+        "additional_minutes": body.additional_minutes,
     }
 
 

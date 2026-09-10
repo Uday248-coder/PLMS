@@ -11,6 +11,11 @@ export class ApiError extends Error {
 
 let _redirecting = false;
 
+// Split-deploy: when the frontend (Vercel) and backend (Render) are on
+// different origins, set VITE_API_URL to the Render backend URL
+// (e.g. https://parking-backend.onrender.com). Falls back to same-origin.
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+
 export async function api<T = unknown>(
   path: string,
   method: string = "GET",
@@ -22,7 +27,8 @@ export async function api<T = unknown>(
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const r = await fetch(path, {
+  const url = `${API_BASE}${path}`;
+  const r = await fetch(url, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,

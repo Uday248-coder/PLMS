@@ -1,5 +1,4 @@
 """Guard taps: login + assigned-lot scope enforced."""
-import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
@@ -7,8 +6,6 @@ from .. import models
 from ..schemas import Tap
 from ..deps import current_user, guard_can_touch, guard_session_check
 from .sessions import tap
-
-log = logging.getLogger(__name__)
 
 router = APIRouter()
 

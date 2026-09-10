@@ -3,8 +3,6 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from . import models
 
-VALID = {"free", "reserved_pending", "self_reported", "occupied", "self_reported_leaving", "mismatch"}
-
 # (from_status, event) -> to_status
 TRANSITIONS = {
     ("free", "assign"): "reserved_pending",

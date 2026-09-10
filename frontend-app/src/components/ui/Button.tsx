@@ -25,11 +25,11 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
       <button
         ref={ref}
         className={clsx(
-          "inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none",
+          "inline-flex items-center justify-center gap-2 font-medium rounded-xl transition-all duration-150 transform-gpu active:scale-[0.97] cursor-pointer select-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100",
           variants[variant],
-          size === "sm" && "px-3 py-1.5 text-xs",
-          size === "md" && "px-4 py-2 text-sm",
-          size === "lg" && "px-6 py-3 text-base",
+          size === "sm" && "px-3 py-1.5 text-xs min-h-[36px]",
+          size === "md" && "px-4 py-2 text-sm min-h-[42px]",
+          size === "lg" && "px-6 py-3.5 text-base min-h-[50px] font-semibold",
           className
         )}
         {...props}

@@ -31,7 +31,6 @@ export function SlotTile({ slot, children, compact = false }: Props) {
       className={clsx(
         "bg-white border border-slate-200 rounded-xl transition-all duration-150",
         compact ? "p-2" : "p-3",
-        slot.status !== "free" && "border-slate-200",
         slot.status === "free" && "border-emerald-100 bg-emerald-50/30",
         isOverdue && "border-red-300 bg-red-50/40"
       )}
@@ -44,7 +43,7 @@ export function SlotTile({ slot, children, compact = false }: Props) {
           {VEHICLE_ICONS[slot.vehicle_type]}
         </span>
       </div>
-      <Badge status={slot.status} size={compact ? "sm" : "sm"} />
+      <Badge status={slot.status} size="sm" />
       {slot.status !== "free" && slot.vehicle_ref && (
         <div className="mt-1.5 text-xs font-mono font-semibold text-slate-600 truncate" title={slot.vehicle_ref}>
           🚘 {slot.vehicle_ref}

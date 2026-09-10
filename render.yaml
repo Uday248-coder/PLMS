@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: parking-backend
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: parking-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        # Update these with your deployed Vercel URL and local Expo URL
+        value: "https://your-vercel-domain.vercel.app,http://localhost:8081,exp://localhost:8081"
+
+databases:
+  - name: parking-db
+    databaseName: parking
+    user: parking_user
+    plan: free

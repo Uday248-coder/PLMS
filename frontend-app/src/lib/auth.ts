@@ -44,6 +44,14 @@ export async function login(
   return data;
 }
 
+export async function quickLogin(role: "admin" | "guard"): Promise<LoginResponse> {
+  const credentials =
+    role === "admin"
+      ? { name: "admin", password: "admin123", role: "admin" }
+      : { name: "guard1", password: "guard123", role: "guard" };
+  return login(credentials.name, credentials.password, credentials.role);
+}
+
 export function logout() {
   clearToken();
 }

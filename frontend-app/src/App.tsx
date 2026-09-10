@@ -4,6 +4,7 @@ import { Layout } from "./components/layout/Layout";
 import { liveChannel } from "./lib/live";
 import { getToken } from "./lib/auth";
 import Hub from "./pages/Hub";
+import FieldSuite from "./pages/FieldSuite";
 import Guard from "./pages/Guard";
 import Kiosk from "./pages/Kiosk";
 import Admin from "./pages/Admin";
@@ -28,8 +29,9 @@ function App() {
       <Routes>
         <Route element={<Layout connected={connected} />}>
           <Route path="/" element={<Hub />} />
-          <Route path="/guard" element={<Guard />} />
+          <Route path="/field" element={<FieldSuite />} />
           <Route path="/kiosk" element={<Kiosk />} />
+          <Route path="/guard" element={<div className="p-6 max-w-6xl mx-auto"><Guard /></div>} />
           <Route path="/admin" element={<Admin />} />
         </Route>
       </Routes>

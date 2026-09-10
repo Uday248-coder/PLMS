@@ -1,13 +1,10 @@
 """Shared auth dependencies. Kiosk/driver endpoints stay public (walk-in)."""
-import logging
 from fastapi import Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from .database import get_db
 from . import models
 from .auth import decode_token
-
-log = logging.getLogger(__name__)
 
 
 def current_user(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
@@ -25,6 +22,9 @@ def current_user(authorization: str | None = Header(default=None), db: Session =
     elif role == "guard":
         user = db.get(models.Guard, sub) or db.execute(
             select(models.Guard).where(models.Guard.name == sub)).scalars().first()
+    elif role == "driver":
+        user = db.get(models.Driver, sub) or db.execute(
+            select(models.Driver).where(models.Driver.email == sub)).scalars().first()
     else:
         raise HTTPException(401, "unknown role")
     if user is None:
