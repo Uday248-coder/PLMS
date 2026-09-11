@@ -18,23 +18,29 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: true, // Initially true while we load from AsyncStorage
 
   login: async (token, role, userId) => {
-    await AsyncStorage.multiSet([
-      ['park_token', token],
-      ['park_role', role],
-      ['park_userId', userId]
+    await Promise.all([
+      AsyncStorage.setItem('park_token', token),
+      AsyncStorage.setItem('park_role', role),
+      AsyncStorage.setItem('park_userId', userId)
     ]);
     set({ token, role: role as any, userId, isLoading: false });
   },
 
   logout: async () => {
-    await AsyncStorage.multiRemove(['park_token', 'park_role', 'park_userId']);
+    await Promise.all([
+      AsyncStorage.removeItem('park_token'),
+      AsyncStorage.removeItem('park_role'),
+      AsyncStorage.removeItem('park_userId')
+    ]);
     set({ token: null, role: null, userId: null, isLoading: false });
   },
 
   checkLocalSession: async () => {
     try {
-      const [[, token], [, role], [, userId]] = await AsyncStorage.multiGet([
-        'park_token', 'park_role', 'park_userId'
+      const [token, role, userId] = await Promise.all([
+        AsyncStorage.getItem('park_token'),
+        AsyncStorage.getItem('park_role'),
+        AsyncStorage.getItem('park_userId')
       ]);
       
       if (token && role && userId) {

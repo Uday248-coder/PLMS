@@ -83,10 +83,11 @@ export default function Admin() {
         if (l.length && !lotId) setLotId(l[0].id);
       })
       .catch(() => {});
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authTick]);
 
   useEffect(() => {
-    refresh();
+    setTimeout(() => refresh(), 0);
     liveRef.current?.stop();
     liveRef.current = liveChannel(
       "/ws/admin",

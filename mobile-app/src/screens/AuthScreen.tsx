@@ -113,17 +113,17 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f3f4f6', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  card: { width: '100%', maxWidth: 400, backgroundColor: 'white', borderRadius: 20, padding: 24, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
-  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 24, textAlign: 'center', color: '#111827' },
-  toggleContainer: { flexDirection: 'row', backgroundColor: '#f3f4f6', borderRadius: 12, padding: 4, marginBottom: 24 },
-  toggleBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-  toggleBtnActive: { backgroundColor: 'white', shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
-  toggleText: { fontSize: 16, fontWeight: '600', color: '#6b7280' },
-  toggleTextActive: { color: '#111827' },
-  input: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, padding: 16, marginBottom: 16, fontSize: 16 },
-  primaryButton: { backgroundColor: '#2563eb', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 8 },
-  primaryButtonText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
-  switchModeBtn: { marginTop: 16, alignItems: 'center' },
-  switchModeText: { color: '#2563eb', fontSize: 14, fontWeight: '600' }
+  container: { flex: 1, backgroundColor: '#faf9f8', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  card: { width: '100%', maxWidth: 400, backgroundColor: 'rgba(255, 255, 255, 0.85)', borderRadius: 24, padding: 28, shadowColor: '#292524', shadowOpacity: 0.08, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  title: { fontSize: 32, fontWeight: '800', marginBottom: 28, textAlign: 'center', color: '#1c1917' },
+  toggleContainer: { flexDirection: 'row', backgroundColor: '#f5f4f1', borderRadius: 14, padding: 5, marginBottom: 24 },
+  toggleBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  toggleBtnActive: { backgroundColor: 'white', shadowColor: '#292524', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  toggleText: { fontSize: 16, fontWeight: '600', color: '#b89d91' },
+  toggleTextActive: { color: '#292524' },
+  input: { backgroundColor: '#f5f4f1', borderWidth: 1, borderColor: '#e8e6e1', borderRadius: 14, padding: 18, marginBottom: 16, fontSize: 16, color: '#1c1917' },
+  primaryButton: { backgroundColor: '#a37c6d', padding: 18, borderRadius: 14, alignItems: 'center', marginTop: 10, shadowColor: '#a37c6d', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 6 } },
+  primaryButtonText: { color: 'white', fontSize: 17, fontWeight: '700' },
+  switchModeBtn: { marginTop: 20, alignItems: 'center' },
+  switchModeText: { color: '#a37c6d', fontSize: 15, fontWeight: '600' }
 });

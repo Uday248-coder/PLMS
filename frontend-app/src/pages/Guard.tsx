@@ -80,11 +80,12 @@ export default function Guard({ selectedLotId, onLotSelect, compact = false }: P
         if (l.length && !activeLotId) setLot(l[0].id);
       })
       .catch(() => {});
+      // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authTick]);
 
   useEffect(() => {
     if (!activeLotId) return;
-    load();
+    setTimeout(() => load(), 0);
     liveRef.current?.stop();
     liveRef.current = liveChannel(`/ws/lot/${activeLotId}`, () => load(), () => load(), 5000);
     return () => liveRef.current?.stop();

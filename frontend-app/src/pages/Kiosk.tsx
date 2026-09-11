@@ -91,15 +91,17 @@ export default function Kiosk() {
       if (saved) {
         const data = JSON.parse(saved);
         if (data.sessionId && data.ticket) {
-          sessionIdRef.current = data.sessionId;
-          setLotId(data.lotId || "");
-          setVtype(data.vtype || "car");
-          setPlate(data.plate || "");
-          setEstMinutes(data.estMinutes || 420);
-          setTicket(data.ticket);
-          setSessionStatus(data.sessionStatus || "reserved_pending");
-          setEstimatedEnd(data.estimatedEnd || null);
-          setStep("ticket");
+          setTimeout(() => {
+            sessionIdRef.current = data.sessionId;
+            setLotId(data.lotId || "");
+            setVtype(data.vtype || "car");
+            setPlate(data.plate || "");
+            setEstMinutes(data.estMinutes || 420);
+            setTicket(data.ticket);
+            setSessionStatus(data.sessionStatus || "reserved_pending");
+            setEstimatedEnd(data.estimatedEnd || null);
+            setStep("ticket");
+          }, 0);
         }
       }
     } catch {

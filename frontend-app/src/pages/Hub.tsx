@@ -4,63 +4,64 @@ import { Card } from "../components/ui/Card";
 export default function Hub() {
   const navigate = useNavigate();
   return (
-    <main className="max-w-5xl mx-auto px-6 py-12 space-y-10 animate-fade-in">
+    <main className="max-w-5xl mx-auto px-6 py-12 space-y-10 animate-fade-in text-surface-900">
       {/* Hero Header */}
-      <div className="text-center space-y-3">
-        <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3.5 py-1 rounded-full text-xs font-bold border border-blue-200">
-          <span>🚀 Pre-Release Beta Suite</span>
+      <div className="text-center space-y-4">
+        <div className="inline-flex items-center gap-2 bg-primary-50 text-primary-800 px-4 py-1.5 rounded-full text-xs font-bold border border-primary-200 shadow-sm shadow-primary-500/10">
+          <span className="drop-shadow-sm">✨</span>
+          <span>Premium Release Suite</span>
         </div>
-        <h1 className="text-4xl sm:text-5xl font-black tracking-tight text-slate-900">
+        <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight">
           Parking Slot Management
         </h1>
-        <p className="text-slate-500 text-base sm:text-lg max-w-xl mx-auto font-medium">
+        <p className="text-surface-500 text-base sm:text-lg max-w-2xl mx-auto font-medium leading-relaxed">
           A synchronized, state-machine driven parking system engineered for instant walk-ins, guard verification, and campus oversight.
         </p>
       </div>
 
       {/* Two Main Production Applications */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 gap-8 pt-4">
         {/* App 1: Field Operations Suite */}
         <Link to="/field" className="group">
           <Card
             hover
-            className="p-7 h-full border-slate-200 group-hover:border-emerald-300 group-hover:shadow-lg transition-all space-y-5"
+            className="p-8 h-full glass border-surface-200 group-hover:border-primary-300 group-hover:-translate-y-1 transition-all duration-300 space-y-6"
           >
             <div className="flex items-center justify-between">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">
+              <div className="w-16 h-16 rounded-2xl bg-surface-100 text-surface-800 border border-surface-200 flex items-center justify-center text-3xl group-hover:scale-105 group-hover:bg-primary-50 group-hover:text-primary-700 transition-all duration-300 shadow-sm">
                 🎫
               </div>
-              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-full bg-surface-50 text-surface-600 border border-surface-200 group-hover:bg-primary-50 group-hover:text-primary-700 group-hover:border-primary-200 transition-colors">
                 Field Operations
               </span>
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2 group-hover:text-emerald-700 transition-colors">
+              <h2 className="text-2xl font-bold mb-3 group-hover:text-primary-700 transition-colors">
                 Gate & Field App
               </h2>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                The frontline gate application designed for walk-in drivers and gate attendants. Includes <strong>Driver Kiosk</strong>, <strong>Guard Terminal</strong>, and a <strong>Dual-Booth Split View</strong>.
+              <p className="text-sm text-surface-600 leading-relaxed">
+                The frontline gate application designed for walk-in drivers and gate attendants. Includes <strong className="text-surface-900">Driver Kiosk</strong>, <strong className="text-surface-900">Guard Terminal</strong>, and a <strong className="text-surface-900">Dual-Booth Split View</strong>.
               </p>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+            <div className="pt-4 border-t border-surface-200/60 flex items-center justify-between text-sm font-bold text-surface-500 group-hover:text-primary-600 transition-colors">
               <span>Launch Field Suite →</span>
-              <div className="flex gap-2 text-[11px] text-slate-400 font-normal">
+              <div className="flex gap-3 text-xs text-surface-400 font-normal">
                 <button
                   type="button"
-                  className="hover:text-slate-700 underline cursor-pointer"
+                  className="hover:text-primary-600 underline cursor-pointer transition-colors"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate("/kiosk"); }}
                 >
-                  Direct Kiosk
+                  Kiosk
                 </button>
                 <span>·</span>
                 <button
                   type="button"
-                  className="hover:text-slate-700 underline cursor-pointer"
+                  className="hover:text-primary-600 underline cursor-pointer transition-colors"
                   onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate("/guard"); }}
                 >
-                  Direct Guard
+                  Guard
                 </button>
               </div>
             </div>
@@ -71,43 +72,43 @@ export default function Hub() {
         <Link to="/admin" className="group">
           <Card
             hover
-            className="p-7 h-full border-slate-200 group-hover:border-blue-300 group-hover:shadow-lg transition-all space-y-5"
+            className="p-8 h-full glass border-surface-200 group-hover:border-primary-300 group-hover:-translate-y-1 transition-all duration-300 space-y-6"
           >
             <div className="flex items-center justify-between">
-              <div className="w-14 h-14 rounded-2xl bg-blue-100 text-blue-700 flex items-center justify-center text-2xl group-hover:scale-105 transition-transform">
+              <div className="w-16 h-16 rounded-2xl bg-surface-100 text-surface-800 border border-surface-200 flex items-center justify-center text-3xl group-hover:scale-105 group-hover:bg-primary-50 group-hover:text-primary-700 transition-all duration-300 shadow-sm">
                 🏛️
               </div>
-              <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+              <span className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-full bg-surface-50 text-surface-600 border border-surface-200 group-hover:bg-primary-50 group-hover:text-primary-700 group-hover:border-primary-200 transition-colors">
                 Management Portal
               </span>
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2 group-hover:text-blue-700 transition-colors">
+              <h2 className="text-2xl font-bold mb-3 group-hover:text-primary-700 transition-colors">
                 Admin Operations App
               </h2>
-              <p className="text-sm text-slate-500 leading-relaxed">
+              <p className="text-sm text-surface-600 leading-relaxed">
                 Campus-wide capacity analytics, live interactive lot visualizer, dispute mediation desk, active overstay tracking, and dynamic lot provisioning.
               </p>
             </div>
 
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-blue-600">
+            <div className="pt-4 border-t border-surface-200/60 flex items-center justify-between text-sm font-bold text-surface-500 group-hover:text-primary-600 transition-colors">
               <span>Launch Admin Portal →</span>
-              <span className="text-[11px] text-slate-400 font-normal">Facility Control</span>
+              <span className="text-xs text-surface-400 font-normal">Facility Control</span>
             </div>
           </Card>
         </Link>
       </div>
 
       {/* Footer Info */}
-      <div className="text-center text-xs text-slate-400 pt-4 flex items-center justify-center gap-4">
+      <div className="text-center text-sm font-medium text-surface-400 pt-8 flex items-center justify-center gap-4">
         <span>⚡ FastAPI + React State Machine</span>
         <span>·</span>
-        <a href="/docs" target="_blank" rel="noreferrer" className="underline hover:text-slate-600">
+        <a href="/docs" target="_blank" rel="noreferrer" className="underline hover:text-surface-700 transition-colors">
           API Documentation
         </a>
         <span>·</span>
-        <a href="/api/health" target="_blank" rel="noreferrer" className="underline hover:text-slate-600">
+        <a href="/api/health" target="_blank" rel="noreferrer" className="underline hover:text-surface-700 transition-colors">
           System Health
         </a>
       </div>
