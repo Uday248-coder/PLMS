@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Parking OS — Demo Preview</title>
+<style>
+  :root {
+    --p50:#fef9f7; --p100:#f3e9e6; --p200:#eaddd7; --p300:#d2c1b9;
+    --p400:#b89d91; --p500:#a37c6d; --p600:#8c6356; --p700:#734c41;
+    --ink:#1c1917; --muted:#8c6356; --card:#ffffff;
+    --ok:#15803d; --okbg:#dcfce7; --warn:#b45309; --warnbg:#fef3c7;
+    --bad:#b3261e; --badbg:#fdecea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink); background: #fbfaf9;
+    background-image:
+      radial-gradient(at 0% 0%, rgba(242,232,229,.7) 0, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(234,221,215,.7) 0, transparent 50%);
+    background-attachment: fixed; min-height: 100vh;
+  }
+  header {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,.75); backdrop-filter: blur(12px);
+    border-bottom: 1px solid #eee7e2;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 22px;
+  }
+  .logo { font-weight: 800; font-size: 20px; display: flex; gap: 8px; align-items: center; }
+  .pill {
+    font-size: 12px; font-weight: 700; padding: 6px 12px; border-radius: 999px;
+    background: var(--p100); color: var(--p700); border: 1px solid var(--p200);
+  }
+  .live { background: var(--okbg); color: var(--ok); border: 1px solid #bbf7d0; }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 18px 60px; }
+  .hero { text-align: center; padding: 26px 10px 10px; }
+  .hero h1 { font-size: clamp(30px, 5vw, 52px); margin: 12px 0 8px; letter-spacing: -1px; }
+  .hero p { color: var(--muted); max-width: 620px; margin: 0 auto; font-size: 17px; line-height: 1.6; }
+  .tabs { display: flex; gap: 10px; justify-content: center; margin: 26px 0; flex-wrap: wrap; }
+  .tab {
+    border: 1px solid var(--p200); background: #fff; padding: 12px 22px; border-radius: 14px;
+    font-weight: 700; font-size: 15px; cursor: pointer; color: var(--muted);
+  }
+  .tab.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .panel { display: none; animation: fade .3s ease; }
+  .panel.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .card {
+    background: rgba(255,255,255,.85); border: 1px solid #efe8e3; border-radius: 20px;
+    padding: 22px; margin-bottom: 18px; box-shadow: 0 4px 20px -2px rgba(41,37,36,.06);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: var(--muted); font-size: 14px; margin: 0 0 14px; }
+  .lots { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .lot {
+    padding: 10px 18px; border-radius: 12px; border: 1px solid var(--p200);
+    background: var(--p50); font-weight: 700; cursor: pointer; color: var(--muted);
+  }
+  .lot.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); margin: 12px 0 6px; }
+  input, select {
+    width: 100%; padding: 14px; font-size: 16px; border-radius: 12px;
+    border: 1px solid #e8e6e1; background: #f6f5f2; color: var(--ink);
+  }
+  .row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  .btn {
+    flex: 1; min-width: 130px; border: none; border-radius: 12px; padding: 15px;
+    font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  .btn-p { background: var(--p500); color: #fff; }
+  .btn-p:hover { background: var(--p600); }
+  .btn-d { background: var(--ink); color: #fff; }
+  .btn-s { background: var(--p200); color: var(--p700); }
+  .btn-g { background: var(--ok); color: #fff; }
+  .btn-r { background: var(--bad); color: #fff; }
+  .ticket { text-align: center; padding: 10px 0; }
+  .slotno { font-size: 56px; font-weight: 800; letter-spacing: -2px; }
+  .status {
+    display: inline-block; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 700;
+    background: var(--warnbg); color: var(--warn); margin: 8px 0;
+  }
+  .status.parked { background: var(--okbg); color: var(--ok); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-top: 12px; }
+  .cell { border-radius: 12px; padding: 12px 8px; text-align: center; border: 1px solid #e8e6e1; background: #f6f5f2; }
+  .cell small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .cell.free { background: #fff; }
+  .cell.me { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .cell.me small { color: #d2c1b9; }
+  .cell.busy { background: var(--p200); border-color: var(--p300); }
+  .qitem {
+    display: flex; align-items: center; gap: 10px; padding: 12px 0;
+    border-top: 1px solid #f0ede9; flex-wrap: wrap;
+  }
+  .qitem b { font-size: 16px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .stat { background: #fff; border: 1px solid #efe8e3; border-radius: 16px; padding: 16px; text-align: center; }
+  .stat .n { font-size: 30px; font-weight: 800; }
+  .stat .t { font-size: 13px; color: var(--muted); }
+  .bar { height: 10px; border-radius: 6px; background: #f0ede9; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; background: var(--p500); border-radius: 6px; }
+  .feed { font-size: 14px; color: var(--muted); }
+  .feed div { padding: 8px 0; border-top: 1px solid #f0ede9; }
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--ink); color: #fff; padding: 13px 22px; border-radius: 12px;
+    font-weight: 600; opacity: 0; transition: all .3s; pointer-events: none; z-index: 99;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  footer { text-align: center; color: var(--muted); font-size: 13px; padding: 20px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🅿️ Parking OS</div>
+  <div style="display:flex;gap:8px">
+    <span class="pill live">● Demo mode</span>
+    <span class="pill">No backend needed</span>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <span class="pill">✨ Review-day preview</span>
+    <h1>Parking Slot Management</h1>
+    <p>A state-machine driven parking system — walk-in tickets, guard verification and campus oversight. This preview runs <b>entirely in your browser</b>; every button below works with mock data.</p>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('driver')">🎫 Driver Kiosk</button>
+    <button class="tab" onclick="showTab('guard')">🛡️ Guard Terminal</button>
+    <button class="tab" onclick="showTab('admin')">🏛️ Admin Overview</button>
+  </div>
+
+  <!-- DRIVER -->
+  <section id="panel-driver" class="panel active">
+    <div class="card">
+      <h2>🎫 Driver Kiosk <span style="font-weight:400;font-size:14px;color:var(--muted)">— walk-in, no login</span></h2>
+      <p class="sub">Pick a lot, enter your plate, get a slot instantly.</p>
+      <label>Parking lot</label>
+      <div class="lots" id="d-lots"></div>
+      <div id="d-count" class="sub"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label>Plate number</label><input id="d-plate" placeholder="KA05MN1234" /></div>
+        <div><label>Vehicle</label>
+          <select id="d-vtype"><option value="car">🚗 Car</option><option value="bike">🏍️ Bike</option></select>
+        </div>
+      </div>
+      <label>Duration</label>
+      <select id="d-dur">
+        <option value="60">1 hour</option><option value="180">3 hours</option>
+        <option value="420" selected>7 hours (typical workday)</option><option value="720">12 hours</option>
+      </select>
+      <div class="row"><button class="btn btn-p" onclick="driverCheckin()">Get my slot →</button></div>
+    </div>
+
+    <div class="card" id="d-ticket-card" style="display:none">
+      <div class="ticket">
+        <h2>🎟️ Your ticket</h2>
+        <div class="slotno" id="d-slot">A-01</div>
+        <div><span class="status" id="d-status">reserved</span></div>
+        <p class="sub" id="d-meta"></p>
+        <div class="row">
+          <button class="btn btn-d" onclick="driverParked()">🅿️ I'm parked</button>
+          <button class="btn btn-s" onclick="driverExtend()">＋ Extend 1h</button>
+        </div>
+        <div class="row">
+          <button class="btn btn-s" onclick="driverLeaving()">🚗 Leaving</button>
+          <button class="btn btn-s" onclick="driverReset()">New ticket</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GUARD -->
+  <section id="panel-guard" class="panel">
+    <div class="card">
+      <h2>🛡️ Guard Terminal <span style="font-weight:400;font-size:14px;color:var(--muted)">— guard1 / guard123</span></h2>
+      <p class="sub">Verify self-reported parkings and check vehicles out.</p>
+      <label>Assigned lot</label>
+      <div class="lots" id="g-lots"></div>
+    </div>
+    <div class="card">
+      <h2>⚠️ Needs your action (<span id="g-pend-n">2</span>)</h2>
+      <p class="sub">Drivers tapped “I'm parked” — confirm the vehicle is really there.</p>
+      <div id="g-queue"></div>
+    </div>
+    <div class="card">
+      <h2>Slot grid <span style="font-weight:400;font-size:14px;color:var(--muted)" id="g-gridsub"></span></h2>
+      <div class="grid" id="g-grid"></div>
+    </div>
+  </section>
+
+  <!-- ADMIN -->
+  <section id="panel-admin" class="panel">
+    <div class="stats">
+      <div class="stat"><div class="n" id="a-occ">0%</div><div class="t">Occupancy</div></div>
+      <div class="stat"><div class="n" id="a-active">0</div><div class="t">Active sessions</div></div>
+      <div class="stat"><div class="n" id="a-pend">0</div><div class="t">Awaiting guard</div></div>
+      <div class="stat"><div class="n" id="a-over">0</div><div class="t">Overstays</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>Capacity by lot</h2>
+      <p class="sub">Live-style occupancy bars (mock data).</p>
+      <div id="a-bars"></div>
+    </div>
+    <div class="card">
+      <h2>Recent activity</h2>
+      <div class="feed" id="a-feed"></div>
+    </div>
+  </section>
+</main>
+
+<footer>Mock demo — all data lives in this page's memory. Real app: FastAPI + React + Expo, same flows, real backend.<br/>Open this file by double-clicking it. No internet or install needed.</footer>
+<div id="toast"></div>
+
+<script>
+// ---------- mock data ----------
+var lots = {
+  S1: { location: "Gate 1", slots: [] },
+  S2: { location: "Gate 2", slots: [] },
+  S3: { location: "Gate 3", slots: [] }
+};
+(function seed() {
+  var id = 0;
+  Object.keys(lots).forEach(function (ln, li) {
+    for (var i = 1; i <= 6; i++) lots[ln].slots.push({ id: "s" + (++id), zone: "A", n: ("0" + i).slice(-2), v: "car", st: (i <= li + 1) ? "occupied" : "free", plate: (i <= li + 1) ? "KA0" + (li + 1) + "AB" + (1000 + i * 7) : null });
+    for (var j = 1; j <= 4; j++) lots[ln].slots.push({ id: "s" + (++id), zone: "B", n: ("0" + j).slice(-2), v: "bike", st: (j === 1 && li === 2) ? "occupied" : "free", plate: (j === 1 && li === 2) ? "KA02XY4402" : null });
+  });
+})();
+var dLot = "S1", gLot = "S1";
+var myTicket = null;
+var queue = [
+  { slot: "A-03", plate: "KA01CD5566", lot: "S1", id: "q1" },
+  { slot: "B-01", plate: "KA02XY4402", lot: "S3", id: "q2" }
+];
+var feed = [
+  "Guard confirmed A-02 in S1 — 6 min ago",
+  "New walk-in check-in at S2 (car) — 11 min ago",
+  "Overstay flagged: B-01 in S3, +42 min — 19 min ago"
+];
+
+// ---------- helpers ----------
+function toast(msg) {
+  var t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(function () { t.classList.remove("show"); }, 2400);
+}
+function showTab(name) {
+  ["driver", "guard", "admin"].forEach(function (t) {
+    document.getElementById("panel-" + t).classList.toggle("active", t === name);
+  });
+  var btns = document.querySelectorAll(".tab");
+  btns.forEach(function (b, i) {
+    b.classList.toggle("active", ["driver", "guard", "admin"][i] === name);
+  });
+  if (name === "admin") renderAdmin();
+  if (name === "guard") renderGuard();
+}
+function lotPills(elId, current, onPick) {
+  var el = document.getElementById(elId); el.innerHTML = "";
+  Object.keys(lots).forEach(function (ln) {
+    var b = document.createElement("button");
+    b.className = "lot" + (ln === current ? " active" : "");
+    b.textContent = ln + " · " + lots[ln].location;
+    b.onclick = function () { onPick(ln); };
+    el.appendChild(b);
+  });
+}
+function freeCount(ln) {
+  return lots[ln].slots.filter(function (s) { return s.st === "free"; }).length;
+}
+
+// ---------- driver ----------
+function renderDriverLots() {
+  lotPills("d-lots", dLot, function (ln) { dLot = ln; renderDriverLots(); });
+  var L = lots[dLot];
+  document.getElementById("d-count").textContent =
+    dLot + " (" + L.location + ") — " + freeCount(dLot) + " of " + L.slots.length + " slots free";
+}
+function driverCheckin() {
+  var plate = document.getElementById("d-plate").value.trim().toUpperCase();
+  var v = document.getElementById("d-vtype").value;
+  var dur = document.getElementById("d-dur").value;
+  if (!plate) { toast("Enter your plate number first"); return; }
+  var slot = lots[dLot].slots.find(function (s) { return s.st === "free" && (v === "car" ? s.zone === "A" : s.zone === "B"); })
+    || lots[dLot].slots.find(function (s) { return s.st === "free"; });
+  if (!slot) { toast(dLot + " is full for " + v + " — try another lot"); return; }
+  slot.st = "reserved"; slot.plate = plate;
+  myTicket = { lot: dLot, zone: slot.zone, n: slot.n, plate: plate, dur: dur, status: "reserved" };
+  document.getElementById("d-ticket-card").style.display = "block";
+  document.getElementById("d-slot").textContent = slot.zone + "-" + slot.n;
+  setStatus("reserved");
+  document.getElementById("d-meta").textContent = plate + " · " + dLot + " · " + dur + " min estimate";
+  feed.unshift("New walk-in check-in at " + dLot + " (" + plate + ") — just now");
+  toast("Slot " + slot.zone + "-" + slot.n + " reserved in " + dLot);
+  document.getElementById("d-ticket-card").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+function setStatus(s) {
+  var el = document.getElementById("d-status");
+  el.textContent = s === "parked" ? "🅿️ parked — verified soon" : s;
+  el.className = "status" + (s === "parked" ? " parked" : "");
+}
+function driverParked() {
+  if (!myTicket) return;
+  myTicket.status = "parked"; setStatus("parked");
+  queue.unshift({ slot: myTicket.zone + "-" + myTicket.n, plate: myTicket.plate, lot: myTicket.lot, id: "q" + Date.now() });
+  feed.unshift("Driver self-reported parked: " + myTicket.zone + "-" + myTicket.n + " (" + myTicket.plate + ") — just now");
+  toast("Guard notified — show this ticket at the gate");
+}
+function driverExtend() {
+  if (!myTicket) return;
+  myTicket.dur = String(Number(myTicket.dur) + 60);
+  document.getElementById("d-meta").textContent = myTicket.plate + " · " + myTicket.lot + " · " + myTicket.dur + " min estimate";
+  toast("Extended by 1 hour");
+}
+function driverLeaving() {
+  if (!myTicket) return;
+  var L = lots[myTicket.lot].slots.find(function (s) { return s.zone === myTicket.zone && s.n === myTicket.n; });
+  if (L) { L.st = "free"; L.plate = null; }
+  feed.unshift("Checkout: " + myTicket.zone + "-" + myTicket.n + " freed in " + myTicket.lot + " — just now");
+  toast("Checked out — thanks for parking with us!");
+  driverReset();
+}
+function driverReset() {
+  myTicket = null;
+  document.getElementById("d-ticket-card").style.display = "none";
+  document.getElementById("d-plate").value = "";
+  renderDriverLots();
+}
+
+// ---------- guard ----------
+function renderGuard() {
+  lotPills("g-lots", gLot, function (ln) { gLot = ln; renderGuard(); });
+  var n = document.getElementById("g-pend-n"); n.textContent = queue.length;
+  var q = document.getElementById("g-queue"); q.innerHTML = "";
+  if (!queue.length) q.innerHTML = '<p class="sub">All clear — nothing awaiting verification. 🎉</p>';
+  queue.forEach(function (item) {
+    var d = document.createElement("div"); d.className = "qitem";
+    d.innerHTML = "<div style='flex:1'><b>" + item.slot + " · " + item.plate + "</b><div class='sub'>" + item.lot + " · self-reported</div></div>";
+    var ok = document.createElement("button"); ok.className = "btn btn-g"; ok.style.flex = "0 0 auto"; ok.textContent = "✓ Confirm";
+    ok.onclick = function () { guardAct(item.id, true); };
+    var no = document.createElement("button"); no.className = "btn btn-r"; no.style.flex = "0 0 auto"; no.textContent = "✕ Deny";
+    no.onclick = function () { guardAct(item.id, false); };
+    d.appendChild(ok); d.appendChild(no); q.appendChild(d);
+  });
+  var L = lots[gLot];
+  document.getElementById("g-gridsub").textContent = "— " + gLot + " (" + freeCount(gLot) + "/" + L.slots.length + " free)";
+  var g = document.getElementById("g-grid"); g.innerHTML = "";
+  L.slots.forEach(function (s) {
+    var c = document.createElement("div");
+    c.className = "cell " + (s.st === "free" ? "free" : "busy");
+    c.innerHTML = "<b>" + s.zone + s.n + "</b><small>" + (s.st === "free" ? "free" : (s.plate || s.st)) + "</small>";
+    g.appendChild(c);
+  });
+}
+function guardAct(id, ok) {
+  var i = queue.findIndex(function (x) { return x.id === id; });
+  if (i < 0) return;
+  var item = queue.splice(i, 1)[0];
+  feed.unshift("Guard " + (ok ? "confirmed" : "denied") + " " + item.slot + " in " + item.lot + " — just now");
+  toast(ok ? "✓ " + item.slot + " confirmed occupied" : "✕ " + item.slot + " denied, slot reopened");
+  renderGuard();
+}
+
+// ---------- admin ----------
+function renderAdmin() {
+  var total = 0, occ = 0;
+  Object.keys(lots).forEach(function (ln) {
+    total += lots[ln].slots.length;
+    occ += lots[ln].slots.filter(function (s) { return s.st !== "free"; }).length;
+  });
+  document.getElementById("a-occ").textContent = Math.round(occ / total * 100) + "%";
+  document.getElementById("a-active").textContent = occ;
+  document.getElementById("a-pend").textContent = queue.length;
+  document.getElementById("a-over").textContent = 1;
+  var bars = document.getElementById("a-bars"); bars.innerHTML = "";
+  Object.keys(lots).forEach(function (ln) {
+    var L = lots[ln], o = L.slots.filter(function (s) { return s.st !== "free"; }).length;
+    var pct = Math.round(o / L.slots.length * 100);
+    var d = document.createElement("div");
+    d.innerHTML = "<div style='display:flex;justify-content:space-between;font-weight:700'><span>" + ln + " · " + L.location + "</span><span>" + o + "/" + L.slots.length + "</span></div><div class='bar'><i style='width:" + pct + "%'></i></div>";
+    d.style.marginBottom = "14px"; bars.appendChild(d);
+  });
+  var f = document.getElementById("a-feed"); f.innerHTML = "";
+  feed.slice(0, 6).forEach(function (line) {
+    var d = document.createElement("div"); d.textContent = "• " + line; f.appendChild(d);
+  });
+}
+
+// ---------- init ----------
+renderDriverLots();
+renderGuard();
+</script>
+</body>
+</html>
