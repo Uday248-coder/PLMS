@@ -1,11 +1,21 @@
-"""Static views + health. Serves the React SPA from frontend/dist/ (local monolith mode)."""
+"""Static views + health. Serves the React SPA (local monolith mode)."""
 from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
 router = APIRouter()
-FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
-DIST_DIR = FRONTEND_DIR / "dist"
+_ROOT = Path(__file__).resolve().parents[3]
+_DIST_CANDIDATES = [_ROOT / "frontend-app" / "dist", _ROOT / "frontend" / "dist"]
+
+
+def _resolve_dist() -> Path:
+    for p in _DIST_CANDIDATES:
+        if (p / "index.html").exists():
+            return p
+    return _DIST_CANDIDATES[0]
+
+
+DIST_DIR = _resolve_dist()
 ASSETS_DIR = DIST_DIR / "assets"
 
 _index = DIST_DIR / "index.html"

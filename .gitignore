@@ -1,6 +1,8 @@
 # Build artifacts
 /frontend/dist/
+/frontend-app/dist/
 /frontend/node_modules/
+/frontend-app/node_modules/
 
 # Graphify (local only)
 graphify-out/

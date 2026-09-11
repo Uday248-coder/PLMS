@@ -16,8 +16,18 @@ from .realtime import notify
 from .routes import admin, auth, driver, guard, lots, sessions, views, ws
 from .seed import ensure_demo_lots, ensure_seed_users
 
-_FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
-_DIST_DIR = _FRONTEND_DIR / "dist"
+_ROOT = Path(__file__).resolve().parents[2]
+_DIST_CANDIDATES = [_ROOT / "frontend-app" / "dist", _ROOT / "frontend" / "dist"]
+
+
+def _resolve_dist() -> Path:
+    for p in _DIST_CANDIDATES:
+        if (p / "index.html").exists():
+            return p
+    return _DIST_CANDIDATES[0]
+
+
+_DIST_DIR = _resolve_dist()
 
 logging.config.dictConfig({
     "version": 1,
