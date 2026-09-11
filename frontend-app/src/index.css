@@ -4,8 +4,8 @@
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
   
   /* Soft Warm/Terracotta Palette */
-  --color-primary-50: #fdf8f6;
-  --color-primary-100: #f2e8e5;
+  --color-primary-50: #fef9f7;
+  --color-primary-100: #f3e9e6;
   --color-primary-200: #eaddd7;
   --color-primary-300: #d2c1b9;
   --color-primary-400: #b89d91;
@@ -16,8 +16,8 @@
   --color-primary-900: #4a2e26;
 
   /* Custom Warm Gray / Stone */
-  --color-surface-50: #faf9f8;
-  --color-surface-100: #f5f4f1;
+  --color-surface-50: #fbfaf9;
+  --color-surface-100: #f6f5f2;
   --color-surface-200: #e8e6e1;
   --color-surface-300: #d2c1b9;
   --color-surface-400: #b89d91;
