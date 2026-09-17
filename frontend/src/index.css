@@ -1,0 +1,277 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===========================================================================
+   PLMS — Industrial Tactile Global Stylesheet
+   --------------------------------------------------------------------------
+   The base layer resets browser defaults and prepares the concrete canvas.
+   The components layer holds the tactile primitives (.btn-hard, .card-hard)
+   used across the UI so that every interactive element carries the physical
+   "ink + hard drop shadow" look defined in the design system.
+   =========================================================================== */
+
+@layer base {
+  :root {
+    --plms-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --plms-ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+    --plms-micro: 140ms;
+    --plms-standard: 220ms;
+    --plms-entry: 320ms;
+    --plms-container: 100rem;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-canvas text-ink-900 font-sans antialiased;
+    background-image:
+      linear-gradient(#E2E0D9 1px, transparent 1px),
+      linear-gradient(90deg, #E2E0D9 1px, transparent 1px);
+    background-size: 64px 64px;
+    background-position: -1px -1px;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    @apply bg-ink-900 text-canvas-surface;
+  }
+
+  /* Visible, consistent keyboard focus — never remove without replacement */
+  :is(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 3px solid #111111;
+    outline-offset: 2px;
+    border-radius: 0;
+  }
+
+  :is(a, button, input, select, textarea):focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Scrollbars — utilitarian & dense */
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-canvas-edge;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ink-900 border-2 border-canvas;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-600;
+  }
+
+  button {
+    @apply select-none;
+  }
+}
+
+@layer components {
+  /* The hard tactile button — base + variants via class composition */
+  .btn-hard {
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2
+           bg-canvas-surface text-ink-900 font-semibold uppercase tracking-wide
+           border-2 border-ink-900 shadow-hard rounded-none
+           transition-all duration-100 ease-out
+           hover:-translate-x-[1px] hover:-translate-y-[1px] hover:shadow-hard-lg
+           active:translate-x-[1px] active:translate-y-[1px] active:shadow-hard-press
+           disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-x-0 disabled:hover:translate-y-0 disabled:hover:shadow-hard;
+  }
+
+  .btn-hard-sm {
+    @apply px-3 py-1.5 text-xs shadow-hard-sm hover:shadow-hard active:shadow-hard-press;
+  }
+
+  .btn-primary {
+    @apply bg-olive-600 text-canvas-surface;
+  }
+  .btn-warning {
+    @apply bg-amber-600 text-canvas-surface;
+  }
+  .btn-danger {
+    @apply bg-crimson-600 text-canvas-surface;
+  }
+  .btn-locked {
+    @apply bg-slateink-600 text-canvas-surface;
+  }
+  .btn-ghost {
+    @apply bg-transparent shadow-none border-2 border-ink-900;
+  }
+  .btn-ghost:hover {
+    @apply bg-ink-900 text-canvas-surface shadow-hard;
+  }
+
+  /* Card primitive — hard bordered surface with hard shadow */
+  .card-hard {
+    @apply bg-canvas-surface border-2 border-ink-900 shadow-hard rounded-none;
+  }
+
+  .card-flat {
+    @apply bg-canvas-surface border-2 border-ink-900 rounded-none;
+  }
+
+  /* Form controls */
+  .input-hard {
+    @apply w-full bg-canvas-surface border-2 border-ink-900 px-3 py-2
+           font-mono text-sm text-ink-900 placeholder-ink-400
+           shadow-hard-sm rounded-none
+           focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none
+           transition-all duration-100 ease-out;
+  }
+
+  .label-hard {
+    @apply block text-[10px] font-bold uppercase tracking-[0.18em] text-ink-600 mb-1;
+  }
+
+  /* Status pill */
+  .pill {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-bold uppercase
+           tracking-widest border-2 border-ink-900 rounded-none;
+  }
+
+  /* Hazard stripe band (used on banners and overstay tiles) */
+  .hazard-stripe-bg {
+    background-image: repeating-linear-gradient(
+      45deg,
+      #111111 0px,
+      #111111 12px,
+      #D97706 12px,
+      #D97706 24px
+    );
+    background-size: 33.94px 33.94px;
+  }
+
+  .hazard-stripe-crimson {
+    background-image: repeating-linear-gradient(
+      45deg,
+      #111111 0px,
+      #111111 12px,
+      #DC2626 12px,
+      #DC2626 24px
+    );
+    background-size: 33.94px 33.94px;
+  }
+
+  /* Monospace chips */
+  .mono-chip {
+    @apply inline-flex items-center px-2 py-1 border-2 border-ink-900 bg-canvas-surface
+           font-mono text-xs font-bold uppercase tracking-wider rounded-none;
+  }
+
+  /* Section heading */
+  .section-title {
+    @apply text-xs font-bold uppercase tracking-[0.24em] text-ink-600 mb-3;
+  }
+
+  /* Industrial stamp / watermark for buttons & tile overlays */
+  .stamp {
+    @apply inline-flex items-center justify-center px-2 py-1 text-[10px] font-bold
+           uppercase tracking-widest border-2 border-ink-900 rounded-none
+           bg-canvas-surface;
+  }
+}
+
+@layer utilities {
+  .text-shadow-hard {
+    text-shadow: 2px 2px 0 #111111;
+  }
+  .text-shadow-soft {
+    text-shadow: 1px 1px 0 rgba(17, 17, 17, 0.4);
+  }
+
+  /* Skip link — keyboard users jump straight to content */
+  .skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -4rem;
+    z-index: 100;
+    padding: 0.65rem 1rem;
+    background: #111111;
+    color: #f7f6f2;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    border: 2px solid #f7f6f2;
+    transition: transform var(--plms-standard) var(--plms-ease);
+  }
+  .skip-link:focus-visible {
+    top: 1rem;
+    transform: translateY(0);
+  }
+
+  /* Skeleton shimmer — opacity/transform only, shape matches content */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: #e2e0d9;
+    border: 2px solid #111111;
+    min-height: 1.5rem;
+  }
+  .skeleton::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: #f7f6f2;
+    opacity: 0.55;
+    transform: translateX(-100%);
+    animation: skeleton-sweep 1.2s var(--plms-ease) infinite;
+  }
+
+  /* Fluid page container */
+  .page-container {
+    width: min(100% - 2rem, var(--plms-container));
+    margin-inline: auto;
+  }
+
+  .clamp-title {
+    font-size: clamp(1.35rem, 1.1rem + 1.2vw, 2rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+}
+
+@keyframes skeleton-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Reduced motion — keep only fast opacity fades for state changes */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hazard-stripe-bg,
+  .hazard-stripe-crimson {
+    animation: none !important;
+  }
+  .skeleton::after {
+    animation: none;
+    opacity: 0.35;
+    transform: none;
+  }
+}
+
+/* Small screens — keep tactile depth but reduce offset so tiles never overflow */
+@media (max-width: 640px) {
+  body {
+    background-size: 40px 40px;
+  }
+}

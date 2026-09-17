@@ -1,97 +1,102 @@
-"""Data model: Lot, Slot, Session, Guard, Admin, AuditLog, GuardLot. Matches build-plan §1."""
+"""Data model: Student, Lot, ParkingSlot, Booking, Fine, NotificationLog."""
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, ForeignKey, Integer, Boolean, Date
 from sqlalchemy.orm import relationship
 from .database import Base
+from .clock import get_current_time
 
 
 def new_id() -> str:
     return str(uuid.uuid4())
 
-
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return get_current_time()
 
 
 class Lot(Base):
     __tablename__ = "lots"
     id = Column(String, primary_key=True, default=new_id)
-    name = Column(String, nullable=False, unique=True)
+    name = Column(String, nullable=False, unique=True)  # Lot 1, Lot 2, Lot 3
     location = Column(String, default="")
-    slots = relationship("Slot", back_populates="lot", cascade="all, delete-orphan")
+    total_slots = Column(Integer, default=20)
+    slots = relationship("ParkingSlot", back_populates="lot", cascade="all, delete-orphan")
 
 
-class Slot(Base):
-    __tablename__ = "slots"
+class ParkingSlot(Base):
+    __tablename__ = "parking_slots"
     id = Column(String, primary_key=True, default=new_id)
     lot_id = Column(String, ForeignKey("lots.id"), nullable=False, index=True)
-    zone = Column(String, nullable=False)          # letter e.g. "A"
-    number = Column(String, nullable=False)        # e.g. "01"
-    vehicle_type = Column(String, nullable=False)  # car | bike | truck
-    status = Column(String, nullable=False, default="free")
-    current_session_id = Column(String, ForeignKey("sessions.id",
-                                                   use_alter=True,
-                                                   name="fk_slot_current_session"),
-                                nullable=True)
-    # Timestamp set once when a reservation/assign event fires; cleared on free.
-    reserved_at = Column(DateTime(timezone=True), nullable=True)
+    slot_name = Column(String, nullable=False)  # A1, A2, ... A20
+    override_status = Column(String, nullable=False, default="available")  # available, occupied, blocked, reserved
     lot = relationship("Lot", back_populates="slots")
+    bookings = relationship("Booking", back_populates="slot", cascade="all, delete-orphan")
 
 
-class ParkingSession(Base):
-    __tablename__ = "sessions"
+class Student(Base):
+    __tablename__ = "students"
     id = Column(String, primary_key=True, default=new_id)
-    slot_id = Column(String, ForeignKey("slots.id"), nullable=False, index=True)
-    lot_id = Column(String, ForeignKey("lots.id"), nullable=False, index=True)
-    driver_id = Column(String, ForeignKey("drivers.id"), nullable=True, index=True)
+    email = Column(String, nullable=False, unique=True, index=True)
+    name = Column(String, nullable=False)
+    roll_number = Column(String, default="")
+    phone = Column(String, default="")
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="student")  # student, admin, guard
+    unpaid_fine_total = Column(Integer, default=0)
+    is_flagged = Column(Boolean, default=False)
+    bookings = relationship("Booking", back_populates="student", cascade="all, delete-orphan")
+    fines = relationship("Fine", back_populates="student", cascade="all, delete-orphan")
+    notifications = relationship("NotificationLog", back_populates="student", cascade="all, delete-orphan")
+
+
+class Booking(Base):
+    __tablename__ = "bookings"
+    id = Column(String, primary_key=True, default=new_id)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False, index=True)
+    slot_id = Column(String, ForeignKey("parking_slots.id"), nullable=False, index=True)
+    booking_date = Column(String, nullable=False)  # YYYY-MM-DD
+    shift = Column(String, nullable=False)  # shift_1 (09:00 - 12:30) or shift_2 (14:00 - 17:30)
+    vehicle_plate = Column(String, default="CAMPUS-STUDENT")
+    status = Column(String, nullable=False, default="booked")  # booked, parked, completed, cancelled, overstay
+    booked_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    parked_at = Column(DateTime(timezone=True), nullable=True)
+    left_at = Column(DateTime(timezone=True), nullable=True)
+    overtime_minutes = Column(Integer, default=0)
+    fine_amount = Column(Integer, default=0)
+    guard_verified = Column(Boolean, default=False)
+    guard_verified_at = Column(DateTime(timezone=True), nullable=True)
+    verified_by_guard_name = Column(String, nullable=True)
+
+    student = relationship("Student", back_populates="bookings")
+    slot = relationship("ParkingSlot", back_populates="bookings")
+    fines = relationship("Fine", back_populates="booking", cascade="all, delete-orphan")
+
+
+class Fine(Base):
+    __tablename__ = "fines"
+    id = Column(String, primary_key=True, default=new_id)
+    booking_id = Column(String, ForeignKey("bookings.id"), nullable=False, index=True)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False, index=True)
+    base_amount = Column(Integer, nullable=False, default=0)
+    late_fee = Column(Integer, nullable=False, default=0)
+    total_amount = Column(Integer, nullable=False, default=0)
+    reason = Column(String, default="")
+    status = Column(String, nullable=False, default="unpaid")  # unpaid, paid, waived
     created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
-    start_time = Column(DateTime(timezone=True), nullable=True)   # actual arrival confirm
-    estimated_end_time = Column(DateTime(timezone=True), nullable=True)
-    actual_end_time = Column(DateTime(timezone=True), nullable=True)
-    flow_type = Column(String, nullable=False)  # guard_managed | self_report
-    verified_by_guard_id = Column(String, nullable=True)
-    status = Column(String, nullable=False)
-    vehicle_ref = Column(String, default="")  # free-text plate, unverified (§6.1)
-    overdue_notified_at = Column(DateTime(timezone=True), nullable=True)  # set by sweeper, cleared on extend
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+
+    booking = relationship("Booking", back_populates="fines")
+    student = relationship("Student", back_populates="fines")
 
 
-class GuardLot(Base):
-    """Many-to-many: which guards can manage which lots."""
-    __tablename__ = "guard_lots"
-    guard_id = Column(String, ForeignKey("guards.id"), primary_key=True)
-    lot_id = Column(String, ForeignKey("lots.id"), primary_key=True)
-    __table_args__ = (UniqueConstraint("guard_id", "lot_id"),)
-
-
-class Guard(Base):
-    __tablename__ = "guards"
+class NotificationLog(Base):
+    __tablename__ = "notifications"
     id = Column(String, primary_key=True, default=new_id)
-    name = Column(String, nullable=False, unique=True)
-    password_hash = Column(String, nullable=False)
-    guard_lots = relationship("GuardLot", cascade="all, delete-orphan")
+    student_id = Column(String, ForeignKey("students.id"), nullable=False, index=True)
+    type = Column(String, nullable=False)  # booking_confirmed, parked, warning_15min, shift_ended, fine_started, fine_daily_accrual, slot_override, extension
+    channel = Column(String, nullable=False, default="in_app")  # in_app, sms, both
+    message = Column(String, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
 
-
-class Admin(Base):
-    __tablename__ = "admins"
-    id = Column(String, primary_key=True, default=new_id)
-    name = Column(String, nullable=False, unique=True)
-    password_hash = Column(String, nullable=False)
-
-
-class Driver(Base):
-    __tablename__ = "drivers"
-    id = Column(String, primary_key=True, default=new_id)
-    email = Column(String, nullable=False, unique=True)
-    password_hash = Column(String, nullable=False)
-
-
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    actor_id = Column(String, default="")
-    actor_type = Column(String, default="")  # guard | admin | system
-    action = Column(String, nullable=False)
-    session_id = Column(String, nullable=True)
-    slot_id = Column(String, nullable=True)
-    timestamp = Column(DateTime(timezone=True), nullable=False, default=_now)
+    student = relationship("Student", back_populates="notifications")

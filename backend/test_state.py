@@ -1,352 +1,311 @@
-"""State machine + race-condition tests (Phase 5 item, run early)."""
+import os
+import pathlib
+import pytest
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import select
+
+os.environ["DATABASE_URL"] = "sqlite:///./test_demo.db"
+
+from app.database import Base, engine, SessionLocal
+from app import models
+from app.seed import seed_database
+from app.auth import hash_password
+from app.clock import set_simulated_time, reset_to_realtime, get_current_time
+from app.fine_engine import run_fine_engine_tick, FINE_PER_HOUR, BUFFER_MINUTES
 from fastapi.testclient import TestClient
 from app.main import app
-from app.database import Base, engine, SessionLocal
-from app.auth import hash_password
-from app import models
-from app.models import GuardLot
 
 client = TestClient(app)
-import uuid as _uuid
 
-
-_ADMIN_CACHE: dict = {}
-
-
-def _admin_token():
-    if "token" not in _ADMIN_CACHE:
-        r = client.post("/api/auth/login", json={"name": "admin", "password": "admin123", "role": "admin"})
-        assert r.status_code == 200, r.text
-        _ADMIN_CACHE["token"] = r.json()["token"]
-    return _ADMIN_CACHE["token"]
-
-
-def _guard_token(lot_id: str):
-    name = f"g-{_uuid.uuid4().hex[:6]}"
+@pytest.fixture(autouse=True)
+def setup_teardown():
+    reset_to_realtime()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
-    try:
-        guard = models.Guard(name=name, password_hash=hash_password("pw123456"))
-        db.add(guard)
-        db.flush()
-        db.add(models.GuardLot(guard_id=guard.id, lot_id=lot_id))
-        db.commit()
-    finally:
-        db.close()
-    r = client.post("/api/auth/login", json={"name": name, "password": "pw123456", "role": "guard"})
-    assert r.status_code == 200, r.text
-    return r.json()["token"]
+    seed_database(db)
+    db.close()
+    yield
+    reset_to_realtime()
+    Base.metadata.drop_all(bind=engine)
 
-
-def _H(tok):
-    return {"Authorization": f"Bearer {tok}"}
-
-
-def _plate():
-    return f"XX-{_uuid.uuid4().hex[:6].upper()}"
-
-
-def _lot(name, car=1, bike=0):
-    h = _H(_admin_token())
-    r = client.post("/api/lots/provision", params={"name": f"{name}-{_uuid.uuid4().hex[:6]}", "car": car, "bike": bike}, headers=h)
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-def test_full_self_report_flow():
-    lot = _lot("T1", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    assert c["status"] == "reserved_pending"
-    slots = client.get(f"/api/lots/{lid}/slots").json()
-    assert slots[0]["status"] == "reserved_pending"
-    assert slots[0]["vehicle_ref"] is not None  # plate visible to guard
-    r = client.post("/api/driver/parked", json={"session_id": c["session_id"]}).json()
-    assert r["status"] == "self_reported"
-    r = client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh).json()
-    assert r["status"] == "occupied"
-    r = client.post("/api/driver/leaving", json={"session_id": c["session_id"]}).json()
-    assert r["status"] == "self_reported_leaving"
-    r = client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh).json()
-    assert r["status"] == "free"
-
-
-def test_last_slot_race_single_winner():
-    lot = _lot("RACE", car=1, bike=0)
-    lid = lot["lot_id"]
-    first = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "vehicle_ref": _plate()})
-    assert first.status_code == 200
-    second = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "vehicle_ref": _plate()})
-    assert second.status_code == 409  # only one wins, other gets lot-full
-
-
-def test_illegal_transition_rejected():
-    lot = _lot("ILL", car=1, bike=0)
-    c = client.post("/api/checkin", json={"lot_id": lot["lot_id"], "vehicle_type": "car", "vehicle_ref": _plate()}).json()
-    # reserved_pending -> guard_checkout is illegal (must confirm or timeout first)
-    r = client.post("/api/guard/checkout", json={"session_id": c["session_id"]},
-                    headers=_H(_guard_token(lot["lot_id"])))
-    assert r.status_code in (400, 500)
-
-
-def test_guard_deny_is_terminal_for_driver():
-    lot = _lot("DENY", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    d = client.post("/api/guard/deny", json={"session_id": c["session_id"]}, headers=gh).json()
-    assert d["status"] == "mismatch" and d.get("terminal") is True
-    # physical spot reopened immediately
-    slots = client.get(f"/api/lots/{lid}/slots").json()
-    assert slots[0]["status"] == "free"
-    # dead session: further driver taps get a clear closed message, not a cryptic 400
-    r = client.post("/api/driver/leaving", json={"session_id": c["session_id"]})
-    assert r.status_code == 410
-
-
-def test_guard_confirm_bogus_session_404():
-    lot = _lot("BOGUS", car=1, bike=0)
-    gh = _H(_guard_token(lot["lot_id"]))
-    for bad in ("00000000-0000-0000-0000-000000000000", ""):
-        r = client.post("/api/guard/confirm", json={"session_id": bad}, headers=gh)
-        assert r.status_code == 404, (bad, r.status_code, r.text)
-
-
-def test_checkin_validation():
-    lot = _lot("VAL", car=2, bike=0)
-    lid = lot["lot_id"]
-    # bad vehicle type
-    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "spaceship", "flow_type": "self_report", "vehicle_ref": _plate()})
-    assert r.status_code == 422, r.text
-    # bad flow type
-    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "teleport", "vehicle_ref": _plate()})
-    assert r.status_code == 422, r.text
-    # unknown lot
-    r = client.post("/api/checkin", json={"lot_id": "no-such-lot", "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()})
-    assert r.status_code == 404, r.text
-    # bad estimated_minutes
-    for bad_est in (-5, 0, 999999999999):
-        r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car",
-                                              "flow_type": "self_report", "estimated_minutes": bad_est,
-                                              "vehicle_ref": _plate()})
-        assert r.status_code == 422, (bad_est, r.text)
-    # empty plate rejected
-    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": ""})
-    assert r.status_code == 422, r.text
-    r = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": "   "})
-    assert r.status_code == 422, r.text
-    # default estimated_minutes (420) sets estimated_end_time
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    db = SessionLocal()
-    try:
-        sess = db.get(models.ParkingSession, c["session_id"])
-        assert sess is not None and sess.estimated_end_time is not None
-    finally:
-        db.close()
-
-
-def test_provision_validation_and_duplicate():
-    ah = _H(_admin_token())
-    name = f"DUP-{_uuid.uuid4().hex[:6]}"
-    r1 = client.post("/api/lots/provision", params={"name": name, "car": 1, "bike": 0}, headers=ah)
-    assert r1.status_code == 200, r1.text
-    r2 = client.post("/api/lots/provision", params={"name": name, "car": 1, "bike": 0}, headers=ah)
-    assert r2.status_code == 409, r2.text
-    r = client.post("/api/lots/provision", params={"name": "   ", "car": 1, "bike": 0}, headers=ah)
-    assert r.status_code == 422, r.text
-    for bad in (-1, 201):
-        r = client.post("/api/lots/provision",
-                        params={"name": f"BAD-{_uuid.uuid4().hex[:6]}", "car": bad, "bike": 0}, headers=ah)
-        assert r.status_code == 422, (bad, r.text)
-
-
-def test_unknown_lot_slots_and_alerts_404():
-    assert client.get("/api/lots/no-such-id/slots").status_code == 404
-    assert client.get("/api/lots/no-such-id/alerts").status_code == 404
-    # recent_sessions requires admin auth; limit is clamped 1..100
-    ah = _H(_admin_token())
-    r = client.get("/api/sessions/recent", params={"limit": -1}, headers=ah)
-    assert r.status_code == 200 and len(r.json()) <= 100
-    r = client.get("/api/sessions/recent", params={"limit": 100000}, headers=ah)
-    assert r.status_code == 200 and len(r.json()) <= 100
-
-
-def test_stale_session_tap_410():
-    lot = _lot("STALE", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    a = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    client.post("/api/driver/parked", json={"session_id": a["session_id"]})
-    client.post("/api/guard/confirm", json={"session_id": a["session_id"]}, headers=gh)
-    client.post("/api/driver/leaving", json={"session_id": a["session_id"]})
-    client.post("/api/guard/confirm", json={"session_id": a["session_id"]}, headers=gh)  # slot free again
-    b = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    assert b["session_id"] != a["session_id"]
-    r = client.post("/api/driver/parked", json={"session_id": a["session_id"]})
-    assert r.status_code == 410, r.text
-
-
-def test_admin_resolve_mismatch():
-    lot = _lot("RESOLVE", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    ah = _H(_admin_token())
-    c = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    d = client.post("/api/guard/deny", json={"session_id": c["session_id"]}, headers=gh).json()
-    assert d["status"] == "mismatch"
-    assert client.post("/api/admin/resolve", json={"session_id": "no-such-id"}, headers=ah).status_code == 404
-    other = client.post("/api/checkin", json={"lot_id": lid, "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    r = client.post("/api/admin/resolve", json={"session_id": other["session_id"]}, headers=ah)
-    assert r.status_code == 409, r.text
-    r = client.post("/api/admin/resolve", json={"session_id": c["session_id"]}, headers=ah)
-    assert r.status_code == 200 and r.json()["status"] == "free", r.text
-    db = SessionLocal()
-    try:
-        sess = db.get(models.ParkingSession, c["session_id"])
-        assert sess.status == "free" and sess.actual_end_time is not None
-    finally:
-        db.close()
-
-
-def test_auth_scoping():
-    a = _lot("AUTH-A", car=1, bike=0)
-    b = _lot("AUTH-B", car=1, bike=0)
-    gh_a = _H(_guard_token(a["lot_id"]))
-    # no token → 401
-    assert client.post("/api/guard/confirm", json={"session_id": "x"}).status_code == 401
-    assert client.post("/api/lots/provision", params={"name": "N-X", "car": 1}).status_code == 401
-    # bad credentials → 401
-    r = client.post("/api/auth/login", json={"name": "admin", "password": "wrong", "role": "admin"})
-    assert r.status_code == 401
-    # guard from lot A cannot touch lot B session
-    c = client.post("/api/checkin", json={"lot_id": b["lot_id"], "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    r = client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh_a)
-    assert r.status_code == 403, r.text
-    # guard cannot do admin ops
-    r = client.post("/api/lots/provision", params={"name": "N-Y", "car": 1}, headers=gh_a)
-    assert r.status_code == 403, r.text
-    # same-lot guard works
-    c2 = client.post("/api/checkin", json={"lot_id": a["lot_id"], "vehicle_type": "car", "flow_type": "self_report", "vehicle_ref": _plate()}).json()
-    client.post("/api/driver/parked", json={"session_id": c2["session_id"]})
-    r = client.post("/api/guard/confirm", json={"session_id": c2["session_id"]}, headers=gh_a)
-    assert r.status_code == 200, r.text
-
-
-def test_login_throttle_429():
-    # Burn the per-minute budget with bad passwords; the cap must trip, not the DB.
-    got_429 = False
-    for _ in range(70):
-        r = client.post("/api/auth/login", json={"name": "admin", "password": "wrong-pw", "role": "admin"})
-        if r.status_code == 429:
-            got_429 = True
-            break
-        assert r.status_code == 401, (r.status_code, r.text)
-    assert got_429, "expected HTTP 429 after exhausting login budget"
-    # Clear rate limiter so subsequent tests can log in
-    from app.routes.admin import _login_hits
-    _login_hits.clear()
-    _ADMIN_CACHE.clear()
-
-
-def test_extend_occupied_session():
-    lot = _lot("EXT", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={
-        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
-        "vehicle_ref": _plate(), "estimated_minutes": 60,
-    }).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh)
-    # Extend by 120 minutes
-    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 120})
-    assert r.status_code == 200, r.text
-    data = r.json()
-    assert "estimated_end" in data
-    assert data["additional_minutes"] == 120
-    # Verify in DB: estimated_end_time moved forward
-    db = SessionLocal()
-    try:
-        sess = db.get(models.ParkingSession, c["session_id"])
-        assert sess.estimated_end_time is not None
-    finally:
-        db.close()
-
-
-def test_extend_overdue_clears_flag():
-    lot = _lot("EXT-OD", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={
-        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
-        "vehicle_ref": _plate(), "estimated_minutes": 60,
-    }).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh)
-    # Simulate overdue: set overdue_notified_at
-    db = SessionLocal()
-    try:
-        from datetime import datetime, timezone
-        sess = db.get(models.ParkingSession, c["session_id"])
-        sess.overdue_notified_at = datetime.now(timezone.utc)
-        db.commit()
-    finally:
-        db.close()
-    # Extend — should clear overdue_notified_at
-    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 30})
+def get_auth_header(email: str):
+    r = client.post("/api/auth/quick-login", json={"email": email})
     assert r.status_code == 200
+    token = r.json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+def test_seeded_data():
     db = SessionLocal()
-    try:
-        sess = db.get(models.ParkingSession, c["session_id"])
-        assert sess.overdue_notified_at is None, "extend should clear overdue flag"
-    finally:
-        db.close()
+    lots = db.execute(select(models.Lot)).scalars().all()
+    assert len(lots) == 3
+    for lot in lots:
+        slots = db.execute(select(models.ParkingSlot).where(models.ParkingSlot.lot_id == lot.id)).scalars().all()
+        assert len(slots) == 20
+    db.close()
 
+def test_movie_ticket_slot_reservation_flow():
+    h = get_auth_header("alex@campus.edu")
+    
+    # 1. Get lots and slots for Shift 1
+    r = client.get("/api/admin/overview?shift=shift_1")
+    assert r.status_code == 200
+    data = r.json()
+    lot1 = data["lots"][0]
+    slot_a1 = lot1["slots"][0]
+    assert slot_a1["slot_name"] == "A01"
+    assert slot_a1["display_status"] == "available"
 
-def test_extend_after_checkout_410():
-    lot = _lot("EXT-CK", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={
-        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
-        "vehicle_ref": _plate(), "estimated_minutes": 60,
-    }).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    client.post("/api/guard/confirm", json={"session_id": c["session_id"]}, headers=gh)
-    # Guard checks out — slot freed
-    client.post("/api/guard/checkout", json={"session_id": c["session_id"]}, headers=gh)
-    # Extend a closed session → 410
-    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 60})
-    assert r.status_code == 410, r.text
+    # 2. Student reserves Bay A1
+    r_book = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": slot_a1["id"], "shift": "shift_1", "vehicle_plate": "KA-01-AB-1234"}
+    )
+    assert r_book.status_code == 200
+    booking_id = r_book.json()["booking_id"]
+    assert r_book.json()["status"] == "booked"
 
+    # 3. Active booking query
+    r_active = client.get("/api/booking/active", headers=h)
+    assert r_active.status_code == 200
+    assert r_active.json()["has_active"] is True
+    assert r_active.json()["booking"]["slot_name"] == "A01"
+    assert r_active.json()["booking"]["status"] in ("booked", "overstay")
 
-def test_extend_exceeds_24h_cap():
-    lot = _lot("EXT-CAP", car=1, bike=0)
-    lid = lot["lot_id"]
-    c = client.post("/api/checkin", json={
-        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
-        "vehicle_ref": _plate(), "estimated_minutes": 1440,  # already maxed at 24h
-    }).json()
-    # Extend by 1 more minute — should be rejected
-    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 1})
-    assert r.status_code == 422, r.text
-    assert "24h" in r.json().get("detail", "").lower() or "24h" in r.text.lower()
+    # 4. Concurrency / double booking protection: Another student (clean standing) tries to book A1
+    h_ananya = get_auth_header("ananya@campus.edu")
+    r_conflict = client.post(
+        "/api/booking/reserve",
+        headers=h_ananya,
+        json={"slot_id": slot_a1["id"], "shift": "shift_1"}
+    )
+    assert r_conflict.status_code == 409
 
+    # 5. Same student cannot book another slot while holding an active one
+    slot_a2 = lot1["slots"][1]
+    r_double = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": slot_a2["id"], "shift": "shift_1"}
+    )
+    assert r_double.status_code in (403, 409)
 
-def test_extend_denied_session_410():
-    lot = _lot("EXT-DN", car=1, bike=0)
-    lid = lot["lot_id"]
-    gh = _H(_guard_token(lid))
-    c = client.post("/api/checkin", json={
-        "lot_id": lid, "vehicle_type": "car", "flow_type": "self_report",
-        "vehicle_ref": _plate(), "estimated_minutes": 60,
-    }).json()
-    client.post("/api/driver/parked", json={"session_id": c["session_id"]})
-    # Guard denies
-    client.post("/api/guard/deny", json={"session_id": c["session_id"]}, headers=gh)
-    # Extend a denied session → 410
-    r = client.post("/api/driver/extend", json={"session_id": c["session_id"], "additional_minutes": 60})
-    assert r.status_code == 410, r.text
+    # 6. Student taps 'Parked'
+    r_park = client.post("/api/booking/park", headers=h, json={"booking_id": booking_id})
+    assert r_park.status_code == 200
+    assert r_park.json()["status"] == "parked"
+
+    # 7. Guard verifies vehicle
+    h_guard = get_auth_header("guard@campus.edu")
+    r_guard = client.post("/api/admin/guard/verify", headers=h_guard, json={"booking_id": booking_id})
+    assert r_guard.status_code == 200
+
+    # 8. Student leaves early -> slot instantly becomes available
+    r_leave = client.post("/api/booking/leave", headers=h, json={"booking_id": booking_id})
+    assert r_leave.status_code == 200
+
+    # Verify slot A1 is now immediately available again for Ananya
+    r_ananya_book = client.post(
+        "/api/booking/reserve",
+        headers=h_ananya,
+        json={"slot_id": slot_a1["id"], "shift": "shift_1"}
+    )
+    assert r_ananya_book.status_code == 200
+    assert r_ananya_book.json()["status"] == "booked"
+
+def test_slot_extension_to_shift_2():
+    # Use Alex (clean standing) instead of Rohit (who now has pre-seeded fines)
+    h = get_auth_header("alex@campus.edu")
+
+    # Reserve slot in Shift 1
+    r_overview = client.get("/api/admin/overview?shift=shift_1")
+    lot1 = r_overview.json()["lots"][0]
+    target_slot = lot1["slots"][4]
+
+    r_book = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": target_slot["id"], "shift": "shift_1"}
+    )
+    assert r_book.status_code == 200
+    booking_id = r_book.json()["booking_id"]
+
+    # Student requests extension into Shift 2
+    r_ext = client.post("/api/booking/extend", headers=h, json={"booking_id": booking_id})
+    assert r_ext.status_code == 200
+    ext_data = r_ext.json()
+    assert ext_data["shift"] == "shift_2"
+    assert "Assigned to" in ext_data["message"]
+
+    # Active booking is now the new Shift 2 booking
+    r_active = client.get("/api/booking/active", headers=h)
+    assert r_active.status_code == 200
+    assert r_active.json()["booking"]["shift"] == "shift_2"
+
+def test_virtual_time_simulator_and_fine_reckoning():
+    h = get_auth_header("ananya@campus.edu")
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # Set virtual clock to 10:00 AM on today's date
+    sim_time_10am = datetime.fromisoformat(f"{today_str}T10:00:00+00:00")
+    client.post("/api/admin/simulator/set", json={"datetime": sim_time_10am.isoformat()})
+
+    # Ananya books A10 for Shift 1
+    r_overview = client.get("/api/admin/overview?shift=shift_1")
+    slot = r_overview.json()["lots"][0]["slots"][9]
+    r_book = client.post("/api/booking/reserve", headers=h, json={"slot_id": slot["id"], "shift": "shift_1"})
+    assert r_book.status_code == 200
+    booking_id = r_book.json()["booking_id"]
+
+    client.post("/api/booking/park", headers=h, json={"booking_id": booking_id})
+
+    # Fast forward time to 12:40 PM (Within 15-min grace buffer: shift ends 12:30, buffer ends 12:45)
+    sim_time_1240 = datetime.fromisoformat(f"{today_str}T12:40:00+00:00")
+    client.post("/api/admin/simulator/set", json={"datetime": sim_time_1240.isoformat()})
+
+    r_active = client.get("/api/booking/active", headers=h)
+    assert r_active.json()["booking"]["fine_amount"] == 0
+
+    # Fast forward time to 01:15 PM (Exceeded buffer by 30 mins)
+    sim_time_1315 = datetime.fromisoformat(f"{today_str}T13:15:00+00:00")
+    client.post("/api/admin/simulator/set", json={"datetime": sim_time_1315.isoformat()})
+
+    r_active = client.get("/api/booking/active", headers=h)
+    assert r_active.json()["booking"]["status"] == "overstay"
+    assert r_active.json()["booking"]["fine_amount"] == 200
+
+    # Ananya vacates vehicle
+    client.post("/api/booking/leave", headers=h, json={"booking_id": booking_id})
+
+    # Ananya now has an unpaid fine of 200 -> Future bookings must be blocked!
+    slot_a2 = r_overview.json()["lots"][0]["slots"][1]
+    r_blocked_book = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": slot_a2["id"], "shift": "shift_1"}
+    )
+    assert r_blocked_book.status_code == 403
+
+    # Admin settles fine
+    r_fines = client.get("/api/admin/fines")
+    fine_id = r_fines.json()["fines"][0]["fine_id"]
+    r_settle = client.post(f"/api/admin/fines/{fine_id}/settle")
+    assert r_settle.status_code == 200
+
+    # Now Ananya can book again!
+    r_unblocked_book = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": slot_a2["id"], "shift": "shift_1"}
+    )
+    assert r_unblocked_book.status_code == 200
+
+def test_admin_slot_state_override():
+    # Admin forces Slot A3 in Lot 1 to 'blocked'
+    r_overview = client.get("/api/admin/overview?shift=shift_1")
+    slot = r_overview.json()["lots"][0]["slots"][2]
+
+    r_override = client.post(
+        f"/api/admin/slots/{slot['id']}/override",
+        json={"override_status": "blocked"}
+    )
+    assert r_override.status_code == 200
+
+    # Student attempts to book blocked slot -> 409
+    h = get_auth_header("alex@campus.edu")
+    r_fail = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": slot["id"], "shift": "shift_1"}
+    )
+    assert r_fail.status_code == 409
+
+    # Admin reverts override back to 'available'
+    client.post(
+        f"/api/admin/slots/{slot['id']}/override",
+        json={"override_status": "available"}
+    )
+    r_success = client.post(
+        "/api/booking/reserve",
+        headers=h,
+        json={"slot_id": slot["id"], "shift": "shift_1"}
+    )
+    assert r_success.status_code == 200
+
+def test_admin_slot_status_manual_override():
+    admin_h = get_auth_header("admin@campus.edu")
+    student_h = get_auth_header("ananya@campus.edu")
+
+    # Fetch slots
+    slots_res = client.get("/api/slots")
+    assert slots_res.status_code == 200
+    slot = slots_res.json()[0]
+    slot_id = slot["id"]
+
+    # 1. Admin sets slot to MAINTENANCE
+    r_maint = client.post(
+        f"/api/admin/slots/{slot_id}/status",
+        headers=admin_h,
+        json={"status": "MAINTENANCE"}
+    )
+    assert r_maint.status_code == 200
+    assert r_maint.json()["status"] == "MAINTENANCE"
+
+    # 2. Student cannot book MAINTENANCE slot
+    r_fail = client.post(
+        "/api/student/reserve",
+        headers=student_h,
+        json={"slot_id": slot_id, "shift": "shift_1"}
+    )
+    assert r_fail.status_code == 409
+
+    # 3. Admin sets slot back to AVAILABLE
+    r_avail = client.post(
+        f"/api/admin/slots/{slot_id}/status",
+        headers=admin_h,
+        json={"status": "AVAILABLE"}
+    )
+    assert r_avail.status_code == 200
+    assert r_avail.json()["status"] == "AVAILABLE"
+
+    # Set virtual time to 10:00 AM (Shift 1 in session)
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    sim_time_10am = datetime.fromisoformat(f"{today_str}T10:00:00+00:00")
+    client.post("/api/clock/set", headers=admin_h, json={"virtual_time": sim_time_10am.isoformat()})
+
+    # 4. Student books slot -> status is BOOKED
+    r_book = client.post(
+        "/api/student/reserve",
+        headers=student_h,
+        json={"slot_id": slot_id, "shift": "shift_1"}
+    )
+    assert r_book.status_code == 200
+
+    slots_after_book = client.get("/api/slots").json()
+    booked_slot = next(s for s in slots_after_book if s["id"] == slot_id)
+    assert booked_slot["status"] == "BOOKED"
+
+    # 5. Admin force overrides slot to AVAILABLE (evict / release active booking)
+    r_force_avail = client.post(
+        f"/api/admin/slots/{slot_id}/status",
+        headers=admin_h,
+        json={"status": "AVAILABLE"}
+    )
+    assert r_force_avail.status_code == 200
+    assert r_force_avail.json()["status"] == "AVAILABLE"
+
+    # Verify slot is indeed AVAILABLE now
+    slots_after_clear = client.get("/api/slots").json()
+    cleared_slot = next(s for s in slots_after_clear if s["id"] == slot_id)
+    assert cleared_slot["status"] == "AVAILABLE"
+    assert cleared_slot["current_booking_id"] is None
+
+    # 6. Admin sets slot to CLOSED / BLOCKED
+    r_closed = client.post(
+        f"/api/admin/slots/{slot_id}/status",
+        headers=admin_h,
+        json={"status": "CLOSED"}
+    )
+    assert r_closed.status_code == 200
+    assert r_closed.json()["status"] == "CLOSED"

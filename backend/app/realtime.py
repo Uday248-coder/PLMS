@@ -1,33 +1,46 @@
-"""WebSocket fan-out, one channel per lot."""
+"""WebSocket fan-out for instantaneous UI synchronization."""
+import json
+import asyncio
+import logging
 from collections import defaultdict
+from fastapi import WebSocket
 
+log = logging.getLogger(__name__)
 
-class LotHub:
+class Broadcaster:
     def __init__(self):
-        self.channels: dict[str, set] = defaultdict(set)
+        self.clients: set[WebSocket] = set()
 
-    async def connect(self, lot_id: str, ws):
+    async def connect(self, ws: WebSocket):
         await ws.accept()
-        self.channels[lot_id].add(ws)
+        self.clients.add(ws)
+        log.info("Client connected. Total clients: %d", len(self.clients))
 
-    def disconnect(self, lot_id: str, ws):
-        self.channels[lot_id].discard(ws)
+    def disconnect(self, ws: WebSocket):
+        self.clients.discard(ws)
+        log.info("Client disconnected. Remaining: %d", len(self.clients))
 
-    async def broadcast(self, lot_id: str, message: dict):
+    async def broadcast(self, message: dict):
         dead = []
-        for ws in list(self.channels.get(lot_id, [])):
+        for ws in list(self.clients):
             try:
                 await ws.send_json(message)
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self.disconnect(lot_id, ws)
+            self.disconnect(ws)
 
+broadcaster = Broadcaster()
+main_loop = None
 
-hub = LotHub()
-
+def broadcast_all(message: dict):
+    """Thread-safe and async-safe broadcast."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(broadcaster.broadcast(message))
+    except RuntimeError:
+        if main_loop is not None:
+            asyncio.run_coroutine_threadsafe(broadcaster.broadcast(message), main_loop)
 
 async def notify(lot_id: str, message: dict):
-    """Fan-out to per-lot channel AND admin channel (zero-cost, same process)."""
-    await hub.broadcast(lot_id, message)
-    await hub.broadcast("admin", {"lot_id": lot_id, **message})
+    await broadcaster.broadcast({**message, "lot_id": lot_id})

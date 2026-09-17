@@ -1,108 +1,113 @@
-"""App factory: wiring only. Routes live in app/routes/, auth in deps.py, seed in seed.py."""
-import asyncio
+"""FastAPI App Factory."""
 import logging
 import logging.config
 from contextlib import asynccontextmanager
-from pathlib import Path
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from starlette.staticfiles import StaticFiles
-from .background import sweep_once
 from .config import get_cors_origins
 from .database import Base, engine, SessionLocal
-from . import models  # noqa: F401 — ensures models register for create_all
-from .realtime import notify
-from .routes import admin, auth, driver, guard, lots, sessions, views, ws
-from .seed import ensure_demo_lots, ensure_seed_users
+from .seed import seed_database
+from .fine_engine import run_fine_engine_tick
+from .clock import get_current_time, get_speed
+from .routes import auth_router, ws_router, api_router
 
-_ROOT = Path(__file__).resolve().parents[2]
-_DIST_CANDIDATES = [_ROOT / "frontend-app" / "dist", _ROOT / "frontend" / "dist"]
-
-
-def _resolve_dist() -> Path:
-    for p in _DIST_CANDIDATES:
-        if (p / "index.html").exists():
-            return p
-    return _DIST_CANDIDATES[0]
-
-
-_DIST_DIR = _resolve_dist()
-
-logging.config.dictConfig({
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "default": {
-            "format": "%(asctime)s %(levelname)s %(name)s: %(message)s",
-            "datefmt": "%Y-%m-%dT%H:%M:%S",
-        }
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "formatter": "default",
-        }
-    },
-    "root": {"handlers": ["console"], "level": "INFO"},
-})
+from . import realtime
 
 log = logging.getLogger(__name__)
 
 
+async def _clock_tick_loop():
+    """Autonomous background worker that:
+    1. Ticks once per real second (advancing virtual time based on current speed).
+    2. Broadcasts CLOCK_TICK to all connected WebSocket clients.
+    3. Periodically runs the fine engine to detect overstays & accrue fines.
+    """
+    tick_count = 0
+    while True:
+        try:
+            await asyncio.sleep(1)
+            tick_count += 1
+
+            now = get_current_time()
+            speed = get_speed()
+
+            # Determine shift from virtual time
+            mins = now.hour * 60 + now.minute
+            if 9 * 60 <= mins < 12 * 60 + 30:
+                shift = "SHIFT_1"
+            elif 12 * 60 + 30 <= mins < 14 * 60:
+                shift = "MIDDAY_CLOSED"
+            elif 14 * 60 <= mins < 17 * 60 + 30:
+                shift = "SHIFT_2"
+            else:
+                shift = "OFF_HOURS"
+
+            # Broadcast clock tick every second
+            realtime.broadcast_all({
+                "type": "CLOCK_TICK",
+                "virtual_time": now.isoformat(),
+                "speed": speed,
+                "shift": shift,
+            })
+
+            # Run fine engine every 3 real seconds (or faster if speed > 1)
+            engine_interval = max(1, 3 // max(1, int(speed)))
+            if tick_count % engine_interval == 0:
+                # Run in executor to avoid blocking the event loop
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, run_fine_engine_tick)
+
+        except asyncio.CancelledError:
+            log.info("Clock tick loop cancelled — shutting down.")
+            break
+        except Exception:
+            log.exception("Clock tick loop error (will retry)")
+            await asyncio.sleep(2)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    realtime.main_loop = asyncio.get_running_loop()
+    # Ensure database schema is created
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        seeded_lots = ensure_demo_lots(db)
-        ensure_seed_users(db, ",".join(l.id for l in seeded_lots))
+        seed_database(db)
+        run_fine_engine_tick()
     finally:
         db.close()
+    log.info("Campus Parking System launched with 3 lots (60 slots) & virtual fine engine.")
 
-    stop = asyncio.Event()
+    # Launch autonomous clock tick loop
+    tick_task = asyncio.create_task(_clock_tick_loop())
+    log.info("Background clock tick loop started.")
 
-    async def sweeper():
-        while not stop.is_set():
-            try:
-                result = await asyncio.to_thread(sweep_once)
-                for evt in result.get("_overdue_events", []):
-                    lot_id = evt.pop("lot_id", "")
-                    if lot_id:
-                        await notify(lot_id, evt)
-            except Exception:
-                log.exception("Unhandled error in background sweeper")
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=60)
-            except asyncio.TimeoutError:
-                pass
-
-    task = asyncio.create_task(sweeper())
-    log.info("Parking system started")
     yield
-    stop.set()
-    await task
-    log.info("Parking system shut down")
 
+    # Gracefully cancel tick loop on shutdown
+    tick_task.cancel()
+    try:
+        await tick_task
+    except asyncio.CancelledError:
+        pass
+    log.info("Campus Parking System shut down.")
 
-app = FastAPI(title="Parking Slot Management", lifespan=lifespan)
+app = FastAPI(title="Campus Parking Slot Management System", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=["*"],  # Allow all origins for dev/dual port isolation (:5173 & :5174)
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.exception_handler(ValueError)
 async def value_error_handler(request, exc):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-
-for _router in (auth.router, views.router, lots.router, sessions.router, driver.router,
-                guard.router, admin.router, ws.router):
+# Include Routers
+for _router in (auth_router, ws_router, api_router):
     app.include_router(_router)
-
-# Serve React build assets (JS, CSS, images) at /assets/
-if (_DIST_DIR / "assets").is_dir():
-    app.mount("/assets", StaticFiles(directory=str(_DIST_DIR / "assets")), name="static-assets")

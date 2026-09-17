@@ -7,7 +7,8 @@ os.environ["DATABASE_URL"] = "sqlite:///./test_demo.db"
 
 import pytest
 from app.database import Base, engine, SessionLocal
-from app.seed import ensure_demo_lots, ensure_seed_users
+from app.seed import seed_database
+from app.clock import reset_to_realtime
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -24,25 +25,17 @@ def _test_db():
 
 @pytest.fixture(autouse=True)
 def _reset_tables():
-    """Wipe and reseed tables before every test."""
+    reset_to_realtime()
     engine.dispose()
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
-        lots = ensure_demo_lots(db)
-        ensure_seed_users(db, ",".join(l.id for l in lots))
+        seed_database(db)
         db.commit()
     finally:
         db.close()
     yield
+    reset_to_realtime()
     engine.dispose()
     Base.metadata.drop_all(bind=engine)
-
-
-@pytest.fixture(autouse=True)
-def _clear_caches():
-    """Reset module-level caches so stale tokens don't leak across tests."""
-    import test_state
-    test_state._ADMIN_CACHE.clear()
-    yield

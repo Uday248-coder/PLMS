@@ -1,9 +1,3 @@
-# Build artifacts
-/frontend/dist/
-/frontend-app/dist/
-/frontend/node_modules/
-/frontend-app/node_modules/
-
 # Graphify (local only)
 graphify-out/
 
@@ -14,8 +8,21 @@ parking-system-pitch-proposal.md
 
 # Secrets / local state
 .env
+.env.*
+!.env.example
 *.db
 *.db-journal
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend-app/node_modules/
+mobile-app/node_modules/
+dist/
+build/
+.next/
+coverage/
 
 # Python
 __pycache__/
@@ -27,3 +34,9 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log

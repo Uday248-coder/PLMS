@@ -3,10 +3,10 @@ uvicorn==0.44.0
 sqlalchemy==2.0.52
 pydantic==2.12.5
 pydantic-settings==2.14.2
+pydantic[email]
 python-jose[cryptography]==3.5.0
-passlib==1.7.4  # pbkdf2_sha256 (stdlib) — no bcrypt binary dep
+passlib==1.7.4
 pytest==9.1.1
 httpx==0.28.1
 websockets==15.0.1
-# Postgres driver (production) — demo runs on SQLite by default
 psycopg2-binary>=2.9
